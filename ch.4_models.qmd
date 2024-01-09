@@ -1,0 +1,307 @@
+---
+title: "Training Load Study Models"
+format: html
+editor: visual
+---
+
+```{r}
+library(tidyverse)
+library(brms)
+```
+
+### Model
+
+$$
+\begin{align*}
+\text{wait}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
+\mu_i         & = \alpha_{\text{café}[i]} + \beta_{\text{café}[i]} \text{afternoon}_i \\
+\begin{bmatrix} \alpha_\text{café} \\ \beta_\text{café} \end{bmatrix} & \sim \operatorname{MVNormal} \begin{pmatrix} \begin{bmatrix} \alpha \\ \beta \end{bmatrix}, \mathbf \Sigma \end{pmatrix} \\
+\mathbf \Sigma     & = \begin{bmatrix} \sigma_\alpha & 0 \\ 0 & \sigma_\beta \end{bmatrix} \mathbf R \begin{bmatrix} \sigma_\alpha & 0 \\ 0 & \sigma_\beta \end{bmatrix} \\
+\alpha        & \sim \operatorname{Normal}(5, 2) \\
+\beta         & \sim \operatorname{Normal}(-1, 0.5) \\
+\sigma        & \sim \operatorname{Exponential}(1) \\
+\sigma_\alpha & \sim \operatorname{Exponential}(1) \\
+\sigma_\beta  & \sim \operatorname{Exponential}(1) \\
+\mathbf R     & \sim \operatorname{LKJcorr}(2),
+\end{align*}
+$$
+
+### Prior Predective Simulations
+
+```{r}
+a       <-  3.5  # average morning wait time
+b       <- -1    # average difference afternoon wait time
+sigma_a <-  1    # std dev in intercepts
+sigma_b <-  0.5  # std dev in slopes
+rho     <- -.7   # correlation between intercepts and slopes
+
+# the next three lines of code simply combine the terms, above
+mu     <- c(a, b)
+
+cov_ab <- sigma_a * sigma_b * rho
+sigma  <- matrix(c(sigma_a^2, cov_ab, 
+                   cov_ab, sigma_b^2), ncol = 2)
+```
+
+```{r}
+sigmas <- c(sigma_a, sigma_b)          # standard deviations
+rho    <- matrix(c(1, rho,             # correlation matrix
+                   rho, 1), nrow = 2)
+
+# now matrix multiply to get covariance matrix
+sigma <- diag(sigmas) %*% rho %*% diag(sigmas)
+
+# how many cafes would you like?
+n_cafes <- 20
+
+set.seed(5)  # used to replicate example
+
+vary_effects <- 
+  MASS::mvrnorm(n_cafes, mu, sigma) %>% 
+  data.frame() %>% 
+  set_names("a_cafe", "b_cafe")
+```
+
+```{r}
+vary_effects %>% 
+  ggplot(aes(x = a_cafe, y = b_cafe)) +
+  geom_point(color = "#80A0C7") +
+  geom_rug(color = "#8B9DAF", linewidth = 1/7)
+```
+
+```{r}
+cor(vary_effects$a_cafe, vary_effects$b_cafe)
+```
+
+### Simulate observations
+
+```{r}
+n_visits <- 10
+sigma    <-  0.5  # std dev within cafes
+
+set.seed(22)  # used to replicate example
+
+d <-
+  vary_effects %>% 
+  mutate(cafe = 1:n_cafes) %>% 
+  expand_grid(visit = 1:n_visits) %>% 
+  mutate(afternoon = rep(0:1, times = n() / 2)) %>% # 1 or 0, half the visits in morning
+  mutate(mu = a_cafe + b_cafe * afternoon) %>% 
+  mutate(wait = rnorm(n = n(), mean = mu, sd = sigma)) %>% # actual wait times
+  select(cafe, everything())
+```
+
+### The varying slopes model
+
+```{r}
+ b14.1 <- 
+  brm(data = d, 
+      family = gaussian,
+      
+      wait ~ 1 + afternoon + (1 + afternoon | cafe),
+      
+      prior = c(prior(normal(5, 2), class = Intercept),
+                prior(normal(-1, 0.5), class = b),
+                prior(exponential(1), class = sd),
+                prior(exponential(1), class = sigma),
+                prior(lkj(2), class = cor)),
+      iter = 2000, warmup = 1000, chains = 4, cores = 4,
+      seed = 867530,
+      file = "fits/b14.01")
+```
+
+```{r}
+post <- as_draws_df(b14.1)
+```
+
+```{r}
+post %>%
+  ggplot() +
+  geom_density(aes(x = cor_cafe__Intercept__afternoon),
+               color = "transparent", fill = "#A65141", alpha = 9/10) +
+  annotate(geom = "text", 
+           x = c(-0.15, 0), y = c(2.21, 0.85), 
+           label = c("posterior", "prior"), 
+           color = c("#A65141", "#EEDA9D")) +
+  scale_y_continuous(NULL, breaks = NULL) 
+```
+
+```{r}
+coef(b14.1)
+```
+
+```{r}
+partially_pooled_params <-
+  # with this line we select each of the 20 cafe's posterior mean (i.e., Estimate)
+  # for both `Intercept` and `afternoon`
+  coef(b14.1)$cafe[ , 1, 1:2] %>%
+  data.frame() %>%              # convert the two vectors to a data frame
+  rename(Slope = afternoon) %>%
+  mutate(cafe = 1:nrow(.)) %>%  # add the `cafe` index
+  select(cafe, everything())    # simply moving `cafe` to the leftmost position
+```
+
+```{r}
+partially_pooled_estimates <-
+  coef(b14.1)$cafe[ , 1, 1:2] %>%
+  # convert the two vectors to a data frame
+  data.frame() %>%
+  # the Intercept is the wait time for morning (i.e., `afternoon == 0`)
+  rename(morning = Intercept) %>%
+  # `afternoon` wait time is the `morning` wait time plus the afternoon slope
+  mutate(afternoon = morning + afternoon,
+         cafe      = 1:n()) %>%  # add the `cafe` index
+  select(cafe, everything()) 
+```
+
+```{r}
+posterior_summary(b14.1) %>% 
+  round(digits = 2)
+```
+
+```{r}
+#summary
+summary(b14.1, prob = .89)
+```
+
+```{r}
+plot_pp_check <- pp_check(b14.1)
+plot_pp_check 
+```
+
+```{r}
+# shiny app
+launch_shinystan(b14.1)
+```
+
+### Prediction intervals for actual values
+
+```{r}
+
+predictions <-
+  predict(b14.1,
+          newdata = d, summary = FALSE)
+
+
+predictions_summary <-
+  predict(b14.1,
+          newdata = d, probs = c(.055, .945))
+```
+
+```{r}
+# Assuming V1 is for the morning and V2 for the afternoon of Cafe 1
+
+predictions_tibble <- as_tibble(predictions)
+
+morning_wait_times <- predictions_tibble$V1
+afternoon_wait_times <- predictions_tibble$V2
+```
+
+```{r}
+# contrast
+contrast_cafe1 <- afternoon_wait_times - morning_wait_times
+```
+
+```{r}
+summary_stats <- data.frame(
+  Mean = mean(contrast_cafe1),
+  Median = median(contrast_cafe1),
+  Quantile_5_5 = quantile(contrast_cafe1, 0.055),
+  Quantile_94_5 = quantile(contrast_cafe1, 0.945)
+)
+
+```
+
+```{r}
+long_data <- data.frame(
+  Time = factor(rep(c("Morning", "Afternoon"), each = length(morning_wait_times))),
+  Wait_Times = c(morning_wait_times, afternoon_wait_times)
+)
+
+library(ggplot2)
+
+ggplot(long_data, aes(x = Wait_Times, fill = Time)) +
+  geom_density(alpha = 0.5) +
+  labs(title = "Distribution of Morning and Afternoon Wait Times for Cafe 1",
+       x = "Wait Time",
+       y = "Density") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_minimal()
+```
+
+```{r}
+contrast_data <- data.frame(Contrast = contrast_cafe1)
+
+ggplot(contrast_data, aes(x = Contrast)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Distribution of Contrast (Afternoon - Morning) for Cafe 1",
+       x = "Contrast in Wait Time",
+       y = "Density") +
+  theme_minimal()
+```
+
+### ROPE
+
+```{r}
+rope_range <- c(-1.5, 1.5)
+# Calculate the percentage of values outside the ROPE
+outside_rope <- sum(contrast_cafe1 < rope_range[1] | contrast_cafe1 > rope_range[2]) / length(contrast_cafe1)
+```
+
+```{r}
+ggplot(contrast_data, aes(x = Contrast)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  geom_vline(xintercept = rope_range, color = "red", linetype = "dashed") +
+  labs(title = "Distribution of Contrast with ROPE for Cafe 1",
+       subtitle = paste("Percentage outside ROPE:", round(outside_rope*100, 2), "%"),
+       x = "Contrast in Wait Time",
+       y = "Density") +
+  theme_minimal()
+
+```
+
+### Group Effect Size
+
+```{r}
+delta_t <- 
+  # Extracting posterior samples from your model using as_draws
+  as_draws_df(b14.1, variable = c("b_afternoon", "sd_cafe__Intercept", "sd_cafe__afternoon", "sigma")) %>%
+  
+  # Taking the square of each variance component
+  mutate(
+    sd_cafe__Intercept = sd_cafe__Intercept^2,
+    sd_cafe__afternoon = sd_cafe__afternoon^2,
+    sigma = sigma^2
+  ) %>%
+  
+  # Dividing the slope estimate by the square root of the sum of all variance components
+  mutate(delta_t = b_afternoon / sqrt(sd_cafe__Intercept + sd_cafe__afternoon + sigma))
+
+```
+
+```{r}
+
+ggplot(delta_t, aes(x = delta_t)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  labs(title = "Density Plot of Standardized Effect Size (\u03B4t)",
+       x = "Standardized Effect Size Delta",
+       y = "Density") +
+  theme_minimal()
+
+```
+
+```{r}
+rope_range_es <- c(-0.6, 0.6)
+outside_rope_es <- sum(delta_t$delta_t < rope_range_es[1] | delta_t$delta_t > rope_range_es[2]) / nrow(delta_t)
+```
+
+```{r}
+ggplot(delta_t, aes(x = delta_t)) +
+  geom_density(fill = "blue", alpha = 0.5) +
+  geom_vline(xintercept = rope_range_es, color = "red", linetype = "dashed") +
+  labs(title = "Distribution of Standardized Effect Size (\u03B4t) with ROPE",
+       subtitle = paste("Percentage outside ROPE:", round(outside_rope_es*100, 2), "%"),
+       x = "Standardized Effect Size (\u03B4t)",
+       y = "Density") +
+  theme_minimal()
+```

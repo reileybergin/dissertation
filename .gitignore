@@ -3,3 +3,9 @@
 .RData
 .Ruserdata
 data/
+fits/
+dissertation.Rproj
+*.html
+ch.4_models_files/
+renv/.gitignore
+renv/settings.dcf

@@ -1,6 +1,21 @@
 ---
-title: "Training Load Study Models"
-format: html
+title: "Ch.4 Models"
+subtitle: ""
+date: "`r format(Sys.time(), '%d %B, %Y')`" # today's date
+author: "Reiley Bergin"
+title-block-banner: "#1B365D"
+execute:
+  warning: false
+  message: false
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-depth: 3
+    echo: false
+    code-tools: true
+    link-external-newwindow: true
 editor: visual
 ---
 
@@ -9,31 +24,60 @@ library(tidyverse)
 library(brms)
 ```
 
+```{r}
+# real data
+data <- reliability %>%
+  pivot_longer(cols = c(Time1, Time2), names_to = "time", values_to = "value") %>%
+  mutate(time = if_else(time == "Time1", 0, 1))
+```
+
 ### Model
 
 $$
 \begin{align*}
-\text{wait}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
-\mu_i         & = \alpha_{\text{café}[i]} + \beta_{\text{café}[i]} \text{afternoon}_i \\
-\begin{bmatrix} \alpha_\text{café} \\ \beta_\text{café} \end{bmatrix} & \sim \operatorname{MVNormal} \begin{pmatrix} \begin{bmatrix} \alpha \\ \beta \end{bmatrix}, \mathbf \Sigma \end{pmatrix} \\
+\text{PTA}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
+\mu_i         & = \alpha_{\text{subject}[i]} + \beta_{\text{subject}[i]} \text{Heavy}_i \\
+\begin{bmatrix} \alpha_\text{subject} \\ \beta_\text{subject} \end{bmatrix} & \sim \operatorname{MVNormal} \begin{pmatrix} \begin{bmatrix} \alpha \\ \beta \end{bmatrix}, \mathbf \Sigma \end{pmatrix} \\
 \mathbf \Sigma     & = \begin{bmatrix} \sigma_\alpha & 0 \\ 0 & \sigma_\beta \end{bmatrix} \mathbf R \begin{bmatrix} \sigma_\alpha & 0 \\ 0 & \sigma_\beta \end{bmatrix} \\
-\alpha        & \sim \operatorname{Normal}(5, 2) \\
-\beta         & \sim \operatorname{Normal}(-1, 0.5) \\
+\alpha        & \sim \operatorname{Normal}(12, 3.8) \\
+\beta         & \sim \operatorname{Normal}(0, 1.5) \\
 \sigma        & \sim \operatorname{Exponential}(1) \\
 \sigma_\alpha & \sim \operatorname{Exponential}(1) \\
 \sigma_\beta  & \sim \operatorname{Exponential}(1) \\
-\mathbf R     & \sim \operatorname{LKJcorr}(2),
+\mathbf R     & \sim \operatorname{LKJcorr}(2)
 \end{align*}
 $$
 
 ### Prior Predective Simulations
 
 ```{r}
-a       <-  3.5  # average morning wait time
-b       <- -1    # average difference afternoon wait time
-sigma_a <-  1    # std dev in intercepts
-sigma_b <-  0.5  # std dev in slopes
-rho     <- -.7   # correlation between intercepts and slopes
+
+# Function to calculate the range for a given normal distribution
+calculate_range <- function(mean, std_dev) {
+  # Z-scores for the lower and upper bounds (1% and 99%)
+  z_score_lower <- qnorm(0.01)
+  z_score_upper <- qnorm(0.99)
+  
+  # Calculate the range of values within the 98% interval
+  interval_lower <- mean + z_score_lower * std_dev
+  interval_upper <- mean + z_score_upper * std_dev
+  
+  return(c(interval_lower, interval_upper))
+}
+
+# 98% of values fall within
+mean <- 14
+std_dev <- 4
+range <- calculate_range(mean, std_dev)
+```
+
+```{r}
+
+a       <-  12  # average morning wait time
+b       <- 0    # average difference afternoon wait time
+sigma_a <-  4.0    # std dev in intercepts
+sigma_b <-  1.5  # std dev in slopes
+rho     <- -.2   # correlation between intercepts and slopes
 
 # the next three lines of code simply combine the terms, above
 mu     <- c(a, b)
@@ -41,9 +85,7 @@ mu     <- c(a, b)
 cov_ab <- sigma_a * sigma_b * rho
 sigma  <- matrix(c(sigma_a^2, cov_ab, 
                    cov_ab, sigma_b^2), ncol = 2)
-```
 
-```{r}
 sigmas <- c(sigma_a, sigma_b)          # standard deviations
 rho    <- matrix(c(1, rho,             # correlation matrix
                    rho, 1), nrow = 2)
@@ -51,67 +93,95 @@ rho    <- matrix(c(1, rho,             # correlation matrix
 # now matrix multiply to get covariance matrix
 sigma <- diag(sigmas) %*% rho %*% diag(sigmas)
 
-# how many cafes would you like?
-n_cafes <- 20
+# how many subjects would you like?
+n_subjects <- 10
 
 set.seed(5)  # used to replicate example
 
 vary_effects <- 
-  MASS::mvrnorm(n_cafes, mu, sigma) %>% 
+  MASS::mvrnorm(n_subjects, mu, sigma) %>% 
   data.frame() %>% 
-  set_names("a_cafe", "b_cafe")
+  set_names("a_subject", "b_subject")
+
 ```
 
 ```{r}
-vary_effects %>% 
-  ggplot(aes(x = a_cafe, y = b_cafe)) +
+# Calculate the correlation
+correlation <- cor(vary_effects$a_subject, vary_effects$b_subject)
+
+# plot intercepts vs slopes
+ggplot(vary_effects, aes(x = a_subject, y = b_subject)) +
   geom_point(color = "#80A0C7") +
-  geom_rug(color = "#8B9DAF", linewidth = 1/7)
-```
-
-```{r}
-cor(vary_effects$a_cafe, vary_effects$b_cafe)
+  geom_rug(color = "#8B9DAF", linewidth = 1/7) +
+  ggtitle(paste("Correlation between intercepts and slopes:", round(correlation, 2)))
 ```
 
 ### Simulate observations
 
 ```{r}
-n_visits <- 10
-sigma    <-  0.5  # std dev within cafes
+n_visits <- 2
+sigma    <-  1.5  # std dev within cafes
 
 set.seed(22)  # used to replicate example
 
 d <-
   vary_effects %>% 
-  mutate(cafe = 1:n_cafes) %>% 
+  mutate(subject = 1:n_subjects) %>% 
   expand_grid(visit = 1:n_visits) %>% 
-  mutate(afternoon = rep(0:1, times = n() / 2)) %>% # 1 or 0, half the visits in morning
-  mutate(mu = a_cafe + b_cafe * afternoon) %>% 
-  mutate(wait = rnorm(n = n(), mean = mu, sd = sigma)) %>% # actual wait times
-  select(cafe, everything())
+  mutate(heavy = rep(0:1, times = n() / 2)) %>% # 1 or 0, half the visits
+  mutate(mu = a_subject + b_subject * heavy) %>% 
+  mutate(pta = rnorm(n = n(), mean = mu, sd = sigma)) %>% # actual values
+  select(subject, everything())
 ```
 
 ### The varying slopes model
 
 ```{r}
- b14.1 <- 
-  brm(data = d, 
-      family = gaussian,
+ bmod_ml <- 
+  brm(data = data,
+      family = gaussian(),
       
-      wait ~ 1 + afternoon + (1 + afternoon | cafe),
+      value ~ 1 + time + (1 + time | Subject),
       
-      prior = c(prior(normal(5, 2), class = Intercept),
-                prior(normal(-1, 0.5), class = b),
-                prior(exponential(1), class = sd),
-                prior(exponential(1), class = sigma),
+      prior = c(prior(normal(70, 20.0), class = Intercept),
+                prior(normal(0, 2.0), class = b),
+                prior(cauchy(0, 10), class = sd),
+                prior(cauchy(0, 10), class = sigma),
                 prior(lkj(2), class = cor)),
-      iter = 2000, warmup = 1000, chains = 4, cores = 4,
-      seed = 867530,
-      file = "fits/b14.01")
+      warmup = 2000, iter = 10000)
 ```
 
 ```{r}
-post <- as_draws_df(b14.1)
+ bmod <- 
+  brm(data = data,
+      family = gaussian(),
+      
+      value ~ 1 + time,
+      
+      prior = c(prior(normal(70, 20.0), class = Intercept),
+                prior(normal(0, 2.0), class = b)),
+      warmup = 2000, iter = 10000)
+```
+
+```{r}
+bmod_vi <- 
+  brm(data = data,
+      family = gaussian(),
+      
+      value ~ 1 + time + (1 | Subject),
+      
+      prior = c(prior(normal(70, 20.0), class = Intercept),
+                prior(normal(0, 2.0), class = b)),
+      warmup = 2000, iter = 10000)
+
+```
+
+```{r}
+coef(bmod_vi)
+```
+
+```{r}
+post <- as_draws_df(bmod_vi)
 ```
 
 ```{r}
@@ -127,7 +197,7 @@ post %>%
 ```
 
 ```{r}
-coef(b14.1)
+coef(b14.2)
 ```
 
 ```{r}
@@ -155,13 +225,13 @@ partially_pooled_estimates <-
 ```
 
 ```{r}
-posterior_summary(b14.1) %>% 
+posterior_summary(bmod_vi) %>%
   round(digits = 2)
 ```
 
 ```{r}
 #summary
-summary(b14.1, prob = .89)
+summary(b2.5, prob = .89)
 ```
 
 ```{r}
@@ -171,7 +241,7 @@ plot_pp_check
 
 ```{r}
 # shiny app
-#launch_shinystan(b14.1)
+launch_shinystan(b14.1)
 ```
 
 ### Prediction intervals for actual values
@@ -304,4 +374,105 @@ ggplot(delta_t, aes(x = delta_t)) +
        x = "Standardized Effect Size (\u03B4t)",
        y = "Density") +
   theme_minimal()
+```
+
+## ICC
+
+```{r}
+library(performance)
+
+# Assuming bmod is your fitted model
+icc_value <- icc(bmod_vi)
+print(icc_value)
+```
+
+```{r}
+
+# Extracting posterior samples
+posterior_samples <- as_draws_df(bmod_vi, variable = c("sd_Subject__Intercept", "sigma"))
+
+# Calculating ICC for each posterior sample
+icc_distribution <- posterior_samples %>%
+  mutate(
+    sd_Subject__Intercept = sd_Subject__Intercept^2,
+    sigma = sigma^2
+  ) %>%
+  mutate(icc = sd_Subject__Intercept / (sd_Subject__Intercept + sigma))
+```
+
+```{r}
+# Now you can summarize or plot this distribution
+summary(icc_distribution$icc)
+```
+
+```{r}
+# Assuming icc_distribution is the data frame containing the ICC values
+icc_89_credible_interval <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
+
+print(icc_89_credible_interval)
+```
+
+SEM
+
+```{r}
+
+# Assuming bmod is your fitted brm model
+posterior_samples <- as_draws_df(bmod_vi, variable = "sigma")
+
+# Calculating the SEM as the mean of the posterior samples of the residual standard deviation
+sem_mean <- mean(posterior_samples$sigma)
+print(sem)
+
+sem_89_credible_interval <- quantile(cov_distribution$cov, probs = c(0.055, 0.945))
+```
+
+```{r}
+
+# Assuming bmod_vi is your fitted brm model
+posterior_samples <- as_draws_df(bmod_vi, variable = "sigma") %>%
+  as_tibble()
+
+# Calculate the 89% credible interval for the SEM
+sem_89_credible_interval <- quantile(posterior_samples$sigma, probs = c(0.055, 0.945))
+
+print(sem_89_credible_interval)
+```
+
+```{r}
+# Fit the repeated measures ANOVA
+anova_model <- aov(value ~ time + Error(Subject/time), data = data)
+
+# Print the summary to understand its structure
+anova_summary <- summary(anova_model)
+print(anova_summary)
+```
+
+```{r}
+# MSE from the ANOVA summary output
+mse <- 19.093
+
+# Calculate the SEM
+sem_anova <- sqrt(mse)
+
+print(sem_anova)
+```
+
+CoV
+
+```{r}
+
+# Extract posterior samples for intercept, slope, and sigma
+posterior_samples <- as_draws_df(bmod_vi, variable = c("b_Intercept", "b_time", "sigma")) %>%
+  as_tibble()
+
+# Assuming the intercept is a reasonable approximation of the grand mean
+# Calculate the CoV for each posterior sample
+cov_distribution <- posterior_samples %>%
+  mutate(grand_mean = b_Intercept + (b_Intercept + b_time) / 2,
+         cov = (sigma / grand_mean) * 100)
+
+# Calculate the 89% credible interval for CoV
+cov_89_credible_interval <- quantile(cov_distribution$cov, probs = c(0.055, 0.945))
+
+print(cov_89_credible_interval)
 ```

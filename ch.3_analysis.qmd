@@ -1,0 +1,80 @@
+---
+title: "Ch.3"
+subtitle: "IMU Validity & Reliability"
+date: "`r format(Sys.time(), '%d %B, %Y')`" # today's date
+author: "Reiley Bergin"
+title-block-banner: "#1B365D"
+execute:
+  warning: false
+  message: false
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-depth: 3
+    echo: false
+    code-tools: true
+    link-external-newwindow: true
+editor: visual
+---
+
+## Validity
+
+### Pearson Correlation
+
+Using `correlation` from the [**easystats**](https://github.com/easystats/easystats) package.
+
+```{r}
+# packages
+library(tidyverse)
+library(easystats)
+library(readr)
+```
+
+```{r}
+# data 
+
+run_rt_leg <- read_csv("data/ch.3_validity_data.csv") %>%
+  filter(run_type == "run", leg == "right") %>%
+  # Subjects that have missing data and need to be removed to balance data
+  filter(!(subject %in% c("Sub03", "Sub10", "Sub12", "Sub13"))) %>%
+  select(-run_type, -leg) %>%
+  pivot_wider(names_from = variable, values_from = value) %>%
+  select(starts_with("imu_"), everything())
+  
+```
+
+```{r}
+corr_results_freq_run_rt_leg <- correlation(run_rt_leg)
+corr_results_freq_run_rt_leg
+```
+
+```{r}
+corr_results_bayes_run_rt_leg <- correlation(run_rt_leg, bayesian = TRUE)
+corr_results_bayes_run_rt_leg 
+```
+
+```{r}
+plot(cor_test(run_rt_leg, "imu_res_g_avg_peak_back_500hz", "max_ankle_force_z"))
+```
+
+## Reliability
+
+```{r}
+# packages
+library(tidyverse)
+library(readr)
+library(brms)
+```
+
+```{r}
+# data
+
+```
+
+### Intraclass Correlation Coefficient (ICC)
+
+### Standard Error of Measurement (SEM)
+
+### Coefficient of Variation (CoV)

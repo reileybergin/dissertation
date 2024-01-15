@@ -62,10 +62,10 @@
     },
     "Matrix": {
       "Package": "Matrix",
-      "Version": "1.6-1.1",
+      "Version": "1.6-5",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "1a00d4828f33a9d690806e98bd17150c",
+      "Hash": "8c7115cd3a0e048bda2a7cd110549f7a",
       "Requirements": [
         "lattice"
       ]
@@ -196,6 +196,17 @@
         "rlang",
         "tibble",
         "tidyselect"
+      ]
+    },
+    "bayestestR": {
+      "Package": "bayestestR",
+      "Version": "0.13.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "61f643ea5ee9fe0e70ab0246340b3c2e",
+      "Requirements": [
+        "datawizard",
+        "insight"
       ]
     },
     "bit": {
@@ -431,6 +442,19 @@
         "rlang"
       ]
     },
+    "correlation": {
+      "Package": "correlation",
+      "Version": "0.8.4",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "d8bd29a9abda6eed9aaab3ba5769f231",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "insight",
+        "parameters"
+      ]
+    },
     "cowplot": {
       "Package": "cowplot",
       "Version": "1.1.2",
@@ -488,6 +512,16 @@
       "Repository": "CRAN",
       "Hash": "6ea17a32294d8ca00455825ab0cf71b9",
       "Requirements": []
+    },
+    "datawizard": {
+      "Package": "datawizard",
+      "Version": "0.9.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "51cf8172b52cfa5b4b988c73c37accfa",
+      "Requirements": [
+        "insight"
+      ]
     },
     "dbplyr": {
       "Package": "dbplyr",
@@ -601,6 +635,39 @@
         "magrittr",
         "xts",
         "zoo"
+      ]
+    },
+    "easystats": {
+      "Package": "easystats",
+      "Version": "0.7.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "9adf16465f69904f6b150529c62f6790",
+      "Requirements": [
+        "bayestestR",
+        "correlation",
+        "datawizard",
+        "effectsize",
+        "insight",
+        "modelbased",
+        "parameters",
+        "performance",
+        "report",
+        "see"
+      ]
+    },
+    "effectsize": {
+      "Package": "effectsize",
+      "Version": "0.8.6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "ba2ebc5b29c95b3f99d022333e8aad5f",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "insight",
+        "parameters",
+        "performance"
       ]
     },
     "ellipsis": {
@@ -992,6 +1059,14 @@
       "Hash": "1deaf1de3eac7e1d3377954b3a283652",
       "Requirements": []
     },
+    "insight": {
+      "Package": "insight",
+      "Version": "0.19.7",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "750aba9b42391da33ac290b71a749023",
+      "Requirements": []
+    },
     "isoband": {
       "Package": "isoband",
       "Version": "0.2.7",
@@ -1176,6 +1251,21 @@
         "shiny"
       ]
     },
+    "modelbased": {
+      "Package": "modelbased",
+      "Version": "0.8.6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "60a0171d055dc3122d7d2b6ed31e8003",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "effectsize",
+        "insight",
+        "parameters",
+        "performance"
+      ]
+    },
     "modelr": {
       "Package": "modelr",
       "Version": "0.1.11",
@@ -1254,6 +1344,30 @@
       "Repository": "CRAN",
       "Hash": "bca377e1c87ec89ebed77bba00635b2e",
       "Requirements": []
+    },
+    "parameters": {
+      "Package": "parameters",
+      "Version": "0.21.3",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "d6b15d1e41faf8951b59f5b3051ad3e3",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "insight"
+      ]
+    },
+    "performance": {
+      "Package": "performance",
+      "Version": "0.10.8",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "92873fb57cc5b73fe2aa0b09056a789a",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "insight"
+      ]
     },
     "pillar": {
       "Package": "pillar",
@@ -1510,6 +1624,21 @@
       "Hash": "6a38294e7d12f5d8e656b08c5bd8ae34",
       "Requirements": []
     },
+    "report": {
+      "Package": "report",
+      "Version": "0.5.8",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "58f87069950a24a5d7785497a7063fc1",
+      "Requirements": [
+        "bayestestR",
+        "datawizard",
+        "effectsize",
+        "insight",
+        "parameters",
+        "performance"
+      ]
+    },
     "reprex": {
       "Package": "reprex",
       "Version": "2.0.2",
@@ -1660,6 +1789,24 @@
         "munsell",
         "rlang",
         "viridisLite"
+      ]
+    },
+    "see": {
+      "Package": "see",
+      "Version": "0.8.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "da9e81f514670067479254209b6c80a7",
+      "Requirements": [
+        "bayestestR",
+        "correlation",
+        "datawizard",
+        "effectsize",
+        "ggplot2",
+        "insight",
+        "modelbased",
+        "parameters",
+        "performance"
       ]
     },
     "selectr": {

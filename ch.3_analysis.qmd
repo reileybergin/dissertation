@@ -21,42 +21,56 @@ editor: visual
 
 ## Validity
 
-### Pearson Correlation
-
-Using `correlation` from the [**easystats**](https://github.com/easystats/easystats) package.
-
 ```{r}
 # packages
 library(tidyverse)
 library(easystats)
 library(readr)
+library(BayesFactor)
 ```
 
 ```{r}
-# data 
 
-run_rt_leg <- read_csv("data/ch.3_validity_data.csv") %>%
+# Running data ---
+
+run <- read_csv("data/ch.3_validity_data.csv") %>%
   filter(run_type == "run", leg == "right") %>%
   # Subjects that have missing data and need to be removed to balance data
   filter(!(subject %in% c("Sub03", "Sub10", "Sub12", "Sub13"))) %>%
   select(-run_type, -leg) %>%
   pivot_wider(names_from = variable, values_from = value) %>%
-  select(starts_with("imu_"), everything())
-  
+  select(starts_with("imu_"), everything()) %>%
+  # Remove '_500hz'
+  rename_with(~ gsub("_500hz", "", .), .cols = everything())  
+
+
+# Rt tibia vs force magnitude variables ---
+run_tibia_force_mag <- run %>%
+  # Keep columns starting with 'imu_' or ending with '_force_mag'
+   select(matches("^imu_.*_rt$|^.*_force_mag$"))
+```
+
+### Pearson Correlation
+
+Using `correlation` from the [easystats](https://github.com/easystats/easystats) package.
+
+#### Frequentist Approach
+
+```{r}
+results_freq <- correlation(run_tibia_force_mag)
+results_freq
+```
+
+#### Bayesian Approach
+
+```{r}
+corr_bayes <- correlation(run_tibia_force_mag, bayesian = TRUE)
+corr_bayes
 ```
 
 ```{r}
-corr_results_freq_run_rt_leg <- correlation(run_rt_leg)
-corr_results_freq_run_rt_leg
-```
-
-```{r}
-corr_results_bayes_run_rt_leg <- correlation(run_rt_leg, bayesian = TRUE)
-corr_results_bayes_run_rt_leg 
-```
-
-```{r}
-plot(cor_test(run_rt_leg, "imu_res_g_avg_peak_back_500hz", "max_ankle_force_z"))
+result <- correlationBF(run_tibia_force_mag$imu_yaxis_g_avg_peak_rt, run_tibia_force_mag$max_ankle_force_mag)
+describe_posterior(result)
 ```
 
 ## Reliability
@@ -66,15 +80,215 @@ plot(cor_test(run_rt_leg, "imu_res_g_avg_peak_back_500hz", "max_ankle_force_z"))
 library(tidyverse)
 library(readr)
 library(brms)
+library(psych)
+library(lme4)
+library(easystats)
 ```
 
 ```{r}
-# data
 
+# PTA for Right Tibia ---
+
+# Wide format
+run_rt_leg_pta <- read_csv("data/ch.3_reliability_data.csv") %>%
+  filter(str_detect(run_type, "_run$")) %>%
+  filter(variable == "res_g_avg_peak_rt_500hz") %>%
+  select(-variable) %>%
+  mutate(run_type = str_replace(run_type, "_.*", "")) %>%
+  pivot_wider(names_from = run_type, values_from = value)
+
+# Long format for models
+run_rt_leg_pta_long <- run_rt_leg_pta %>%
+  pivot_longer(cols = c(time01, time02), names_to = "time", values_to = "value") %>%
+  mutate(time = if_else(time == "time01", 0, 1))
 ```
 
 ### Intraclass Correlation Coefficient (ICC)
 
+Using `ICC()` from [psych](https://cran.r-project.org/web/packages/psych/psych.pdf) package and `icc()`from the [easystats](https://github.com/easystats/easystats) package.
+
+#### Frequentist Approach
+
+```{r}
+
+# Looking at ICC3 from psych package
+run_rt_leg_pta %>%
+  select(-sub_id) %>%
+  ICC()
+```
+
+```{r}
+
+# Multilevel Model (varying interceps)
+freq_model <- lmer(
+                    data = run_rt_leg_pta_long,
+                   
+                    value ~ 1 + time + (1 | sub_id)
+                   
+                   )
+```
+
+```{r}
+icc_freq <- icc(freq_model)
+icc_freq
+```
+
+#### Bayesian Approach
+
+```{r}
+
+# Multilevel Model (varying interceps)
+bayes_model <- brm(
+  
+               data = run_rt_leg_pta_long,
+                   
+               family = gaussian(),
+               
+               value ~ 1 + time + (1 | sub_id),
+               
+               prior = c(prior(normal(12, 3.0), class = Intercept),
+                        prior(normal(0, 2.0), class = b), 
+                        prior(cauchy(0, 10), class = sd),
+                        prior(cauchy(0, 10), class = sigma)),
+               
+               warmup = 2000, iter = 10000,
+               control = list(adapt_delta = 0.98)
+               
+               )
+```
+
+```{r}
+icc_bayes <- icc(bayes_model)
+icc_bayes
+```
+
+Estimation of Credible Interval for ICC
+
+```{r}
+
+# Extracting posterior samples
+posterior_samples <- as_draws_df(bayes_model, variable = c("sd_sub_id__Intercept", "sigma"))
+
+# Calculate ICC for each posterior sample
+icc_distribution <- posterior_samples %>%
+  mutate(
+    sd_sub_id__Intercept = sd_sub_id__Intercept^2,
+    sigma = sigma^2
+  ) %>%
+  mutate(icc = sd_sub_id__Intercept / (sd_sub_id__Intercept + sigma))
+
+summary(icc_distribution$icc)
+```
+
+```{r}
+# Assuming icc_distribution is the data frame containing the ICC values
+icc_89_credible_interval <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
+icc_89_credible_interval
+```
+
 ### Standard Error of Measurement (SEM)
 
+Calculatied as the *mean square error term from a repeated measures ANOVA* as desribed Weir & Vincent in [Statistics in Kinesiology 5th Edition.](https://us.humankinetics.com/blogs/excerpt/standard-error-of-measurement)
+
+#### Frequentist Approach
+
+```{r}
+
+anova_model <- aov(value ~ time + Error(sub_id/time), data = run_rt_leg_pta_long)
+anova_summary <- summary(anova_model)
+print(anova_summary)
+```
+
+```{r}
+
+# MSE from the ANOVA summary output
+mse <- 0.2224
+
+# Calculate the SEM
+sem_anova <- sqrt(mse)
+
+print(sem_anova)
+```
+
+#### Bayesian Approach
+
+```{r}
+
+# Calculate the 89% credible interval for the SEM using sigma
+
+posterior_samples <- as_draws_df(bayes_model, variable = "sigma") %>%
+  as_tibble()
+
+sem_89_credible_interval <- quantile(posterior_samples$sigma, probs = c(0.055, 0.945))
+
+print(sem_89_credible_interval)
+```
+
 ### Coefficient of Variation (CoV)
+
+#### Frequentist Approach
+
+Calculatied by dividing the SEM (as calculated above) from the grand mean as desribed Weir & Vincent in [Statistics in Kinesiology 5th Edition.](https://us.humankinetics.com/blogs/excerpt/standard-error-of-measurement)
+
+```{r}
+
+grand_mean <- mean(run_rt_leg_pta_long$value)
+
+freq_cov <- (sem_anova / grand_mean) *100
+freq_cov
+```
+
+#### Bayesian Approach
+
+```{r}
+# Extract posterior samples for intercept, slope, and sigma
+posterior_samples <- as_draws_df(bayes_model, variable = c("b_Intercept", "b_time", "sigma")) %>%
+  as_tibble()
+
+# Assuming the intercept is a reasonable approximation of the grand mean
+# Calculate the CoV for each posterior sample
+cov_distribution <- posterior_samples %>%
+  mutate(grand_mean = b_Intercept,
+         cov = (sigma / grand_mean) * 100)
+
+# Calculate the 89% credible interval for CoV
+cov_89_credible_interval <- quantile(cov_distribution$cov, probs = c(0.055, 0.945))
+
+print(cov_89_credible_interval)
+```
+
+```{r}
+
+# Your existing code to calculate cov_distribution and cov_89_credible_interval...
+
+# Create a density plot of the CoV distribution
+p <- ggplot(cov_distribution, aes(x=cov)) +
+  geom_density(fill="blue", alpha=0.5) +
+  geom_vline(xintercept=cov_89_credible_interval[1], color="red", linetype="dashed") +
+  geom_vline(xintercept=cov_89_credible_interval[2], color="red", linetype="dashed") +
+  labs(title="Density Plot of Coefficient of Variation (CoV)",
+       subtitle=paste0("89% Credible Interval: [", round(cov_89_credible_interval[1], 2), ", ", round(cov_89_credible_interval[2], 2), "]"),
+       x="Coefficient of Variation (%)",
+       y="Density") +
+  theme_minimal()
+
+# Print the plot
+print(p)
+
+```
+
+```{r}
+# Estimate the kernel density
+dens <- density(cov_distribution$cov)
+
+# Find the x-value (cov value) where the density is maximum (the mode)
+estimated_mode <- dens$x[which.max(dens$y)]
+
+# You can print or use the estimated_mode as you need
+print(estimated_mode)
+
+# Optionally, add a vertical line for the estimated mode to
+# Optionally, add a vertical line for the estimated mode to your plot
+p + geom_vline(xintercept=estimated_mode, color="green", linetype="dotted") +
+  geom_text(aes(x=estimated_mode, label=paste("Estimated Mode:", round(estimated_mode, 2)), y=max(dens$y)), vjust=-0.5, color="green")
+```

@@ -22,11 +22,13 @@ editor: visual
 ## Validity
 
 ```{r}
-# packages
+
+# Packages
 library(tidyverse)
 library(easystats)
 library(readr)
 library(BayesFactor)
+library(see)
 ```
 
 ```{r}
@@ -36,7 +38,7 @@ library(BayesFactor)
 run <- read_csv("data/ch.3_validity_data.csv") %>%
   filter(run_type == "run", leg == "right") %>%
   # Subjects that have missing data and need to be removed to balance data
-  filter(!(subject %in% c("Sub03", "Sub10", "Sub12", "Sub13"))) %>%
+  #filter(!(subject %in% c("Sub03", "Sub10", "Sub12", "Sub13"))) %>%
   select(-run_type, -leg) %>%
   pivot_wider(names_from = variable, values_from = value) %>%
   select(starts_with("imu_"), everything()) %>%
@@ -48,6 +50,9 @@ run <- read_csv("data/ch.3_validity_data.csv") %>%
 run_tibia_force_mag <- run %>%
   # Keep columns starting with 'imu_' or ending with '_force_mag'
    select(matches("^imu_.*_rt$|^.*_force_mag$"))
+
+# Walking data ---
+
 ```
 
 ### Pearson Correlation
@@ -57,18 +62,35 @@ Using `correlation` from the [easystats](https://github.com/easystats/easystats)
 #### Frequentist Approach
 
 ```{r}
+
 results_freq <- correlation(run_tibia_force_mag)
 results_freq
+```
+
+```{r}
+
+# Correlation Matriz
+results_freq%>%
+  summary(redundant = TRUE) %>%
+  plot()
+```
+
+```{r}
+
+# Scatter Plot
+plot(cor_test(run, "max_ankle_force_mag", "imu_yaxis_g_avg_peak_rt"))
 ```
 
 #### Bayesian Approach
 
 ```{r}
+
 corr_bayes <- correlation(run_tibia_force_mag, bayesian = TRUE)
 corr_bayes
 ```
 
 ```{r}
+
 result <- correlationBF(run_tibia_force_mag$imu_yaxis_g_avg_peak_rt, run_tibia_force_mag$max_ankle_force_mag)
 describe_posterior(result)
 ```
@@ -76,13 +98,15 @@ describe_posterior(result)
 ## Reliability
 
 ```{r}
-# packages
+
+# Packages
 library(tidyverse)
 library(readr)
 library(brms)
 library(psych)
 library(lme4)
 library(easystats)
+library(tidybayes)
 ```
 
 ```{r}
@@ -120,15 +144,12 @@ run_rt_leg_pta %>%
 ```{r}
 
 # Multilevel Model (varying interceps)
-freq_model <- lmer(
-                    data = run_rt_leg_pta_long,
-                   
-                    value ~ 1 + time + (1 | sub_id)
-                   
-                   )
+freq_model <- lmer(data = run_rt_leg_pta_long, value ~ 1 + time + (1 | sub_id))
 ```
 
 ```{r}
+
+# ICC point estimate
 icc_freq <- icc(freq_model)
 icc_freq
 ```
@@ -158,6 +179,15 @@ bayes_model <- brm(
 ```
 
 ```{r}
+
+# Draws from Posteior
+draws <- bayes_model %>% 
+         spread_draws(b_Intercept, b_time, sd_sub_id__Intercept, sigma)
+```
+
+```{r}
+
+# ICC point estimate
 icc_bayes <- icc(bayes_model)
 icc_bayes
 ```
@@ -176,11 +206,10 @@ icc_distribution <- posterior_samples %>%
     sigma = sigma^2
   ) %>%
   mutate(icc = sd_sub_id__Intercept / (sd_sub_id__Intercept + sigma))
-
-summary(icc_distribution$icc)
 ```
 
 ```{r}
+
 # Assuming icc_distribution is the data frame containing the ICC values
 icc_89_credible_interval <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
 icc_89_credible_interval
@@ -250,45 +279,19 @@ posterior_samples <- as_draws_df(bayes_model, variable = c("b_Intercept", "b_tim
 cov_distribution <- posterior_samples %>%
   mutate(grand_mean = b_Intercept,
          cov = (sigma / grand_mean) * 100)
+```
+
+```{r}
 
 # Calculate the 89% credible interval for CoV
 cov_89_credible_interval <- quantile(cov_distribution$cov, probs = c(0.055, 0.945))
-
 print(cov_89_credible_interval)
 ```
 
 ```{r}
 
-# Your existing code to calculate cov_distribution and cov_89_credible_interval...
-
-# Create a density plot of the CoV distribution
-p <- ggplot(cov_distribution, aes(x=cov)) +
-  geom_density(fill="blue", alpha=0.5) +
-  geom_vline(xintercept=cov_89_credible_interval[1], color="red", linetype="dashed") +
-  geom_vline(xintercept=cov_89_credible_interval[2], color="red", linetype="dashed") +
-  labs(title="Density Plot of Coefficient of Variation (CoV)",
-       subtitle=paste0("89% Credible Interval: [", round(cov_89_credible_interval[1], 2), ", ", round(cov_89_credible_interval[2], 2), "]"),
-       x="Coefficient of Variation (%)",
-       y="Density") +
-  theme_minimal()
-
-# Print the plot
-print(p)
-
-```
-
-```{r}
-# Estimate the kernel density
-dens <- density(cov_distribution$cov)
-
 # Find the x-value (cov value) where the density is maximum (the mode)
+dens <- density(cov_distribution$cov)
 estimated_mode <- dens$x[which.max(dens$y)]
-
-# You can print or use the estimated_mode as you need
 print(estimated_mode)
-
-# Optionally, add a vertical line for the estimated mode to
-# Optionally, add a vertical line for the estimated mode to your plot
-p + geom_vline(xintercept=estimated_mode, color="green", linetype="dotted") +
-  geom_text(aes(x=estimated_mode, label=paste("Estimated Mode:", round(estimated_mode, 2)), y=max(dens$y)), vjust=-0.5, color="green")
 ```

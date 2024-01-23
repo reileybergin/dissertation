@@ -31,6 +31,8 @@ library(psych)
 library(lme4)
 library(easystats)
 library(tidybayes)
+library(DT)
+library(reactable)
 ```
 
 ```{r}
@@ -76,10 +78,31 @@ avg_rt_lt <- reliability_data %>%
 # Append the new rows to the original dataset
 reliability_data <- bind_rows(reliability_data, avg_rt_lt) %>%
   arrange(sub_id, run_type, variable)
+
+# List of Vaiables
+vars_reliability <- reliability_data %>%
+  distinct(variable) %>%
+  arrange(variable) %>%
+  mutate(location = case_when(
+    str_detect(variable, '^(rt_|lt_|avg_)') ~ 'Tibia',
+    str_detect(variable, '^lb_') ~ 'Low Back',
+    TRUE ~ NA_character_)) %>%
+   select(location, variable) %>%
+   arrange(desc(location))
 ```
 
 ```{r}
+#| label: Variable Table
 
+reactable(
+  vars_reliability,
+  striped = TRUE,
+  highlight = TRUE,
+  bordered = TRUE,
+  columns = list(
+    location = colDef(name = "IMU Location"),
+    variable = colDef(name = "Variable"))
+)
 ```
 
 ```{r}

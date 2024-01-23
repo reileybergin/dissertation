@@ -22,8 +22,8 @@ editor: visual
 ## Reliability
 
 ```{r}
+#| label: Packages
 
-# Packages
 library(tidyverse)
 library(readr)
 library(brms)
@@ -31,6 +31,55 @@ library(psych)
 library(lme4)
 library(easystats)
 library(tidybayes)
+```
+
+```{r}
+#| label: Data Prep
+
+reliability_data <- read_csv("data/ch.3_reliability_data.csv") %>%
+  
+  # time pt one = 0 & time pt two = 1
+  mutate(
+    time_pt = case_when(
+      str_detect(run_type, "time01") ~ 0,
+      str_detect(run_type, "time02") ~ 1, TRUE ~ NA_real_ )) %>%
+  
+  mutate(
+    run_type = str_extract(run_type, "[^_]+$"),  
+    variable = str_replace(variable, "_500hz$", "")) %>%
+  
+  
+  # lb = low back, rt = right tibia, lt = left tibia, 
+  mutate(
+    variable = str_replace_all(variable, c(
+      "accel_x \\(m/s2\\)_meanshift_filtered_rms" = "lb_accel_x_rms_g",
+      "accel_y \\(m/s2\\)_meanshift_filtered_rms" = "lb_accel_y_rms_g",
+      "accel_z \\(m/s2\\)_meanshift_filtered_rms" = "lb_accel_z_rms_g", 
+      "res_g_avg_peak_lt" = "lt_res_pk_accel_g",
+      "res_g_avg_peak_rt" = "rt_res_pk_accel_g",
+      "res_g_avg_peak_back" = "lb_res_pk_accel_g"
+    ))
+  )
+
+# Calculate the average for the left and right tibia 
+avg_rt_lt <- reliability_data %>%
+  filter(variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
+  group_by(sub_id, run_type, time_pt) %>%
+  summarize(avg_rt_lt_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  
+  # format the table to match the orginal
+  mutate(
+    variable = "avg_rt_lt_res_pk_accel_g", 
+    value = avg_rt_lt_res_pk_accel_g) %>%
+  select(sub_id, run_type, variable, value, time_pt)
+
+# Append the new rows to the original dataset
+reliability_data <- bind_rows(reliability_data, avg_rt_lt) %>%
+  arrange(sub_id, run_type, variable)
+```
+
+```{r}
+
 ```
 
 ```{r}

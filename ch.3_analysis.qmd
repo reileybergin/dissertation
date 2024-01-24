@@ -31,7 +31,6 @@ library(psych)
 library(lme4)
 library(easystats)
 library(tidybayes)
-library(DT)
 library(reactable)
 ```
 
@@ -64,19 +63,19 @@ reliability_data <- read_csv("data/ch.3_reliability_data.csv") %>%
   )
 
 # Calculate the average for the left and right tibia 
-avg_rt_lt <- reliability_data %>%
+rt_lt_avg <- reliability_data %>%
   filter(variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
   group_by(sub_id, run_type, time_pt) %>%
-  summarize(avg_rt_lt_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  summarize(rt_lt_avg_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
   
   # format the table to match the orginal
   mutate(
-    variable = "avg_rt_lt_res_pk_accel_g", 
-    value = avg_rt_lt_res_pk_accel_g) %>%
+    variable = "rt_lt_avg_res_pk_accel_g", 
+    value = rt_lt_avg_res_pk_accel_g) %>%
   select(sub_id, run_type, variable, value, time_pt)
 
 # Append the new rows to the original dataset
-reliability_data <- bind_rows(reliability_data, avg_rt_lt) %>%
+reliability_data <- bind_rows(reliability_data, rt_lt_avg) %>%
   arrange(sub_id, run_type, variable)
 
 # List of Vaiables
@@ -92,56 +91,144 @@ vars_reliability <- reliability_data %>%
 ```
 
 ```{r}
-#| label: Variable Table
+#| label: Functions
 
-reactable(
-  vars_reliability,
-  striped = TRUE,
-  highlight = TRUE,
-  bordered = TRUE,
-  columns = list(
-    location = colDef(name = "IMU Location"),
-    variable = colDef(name = "Variable"))
-)
+
+# Mean and SD -----
+
+calculate_summary_stats <- function(data) {
+  
+  # Step 1: Calculate mean and standard deviation for each combination of variable, run_type, and time_pt
+  summary_stats <- data %>%
+    group_by(variable, run_type, time_pt) %>%
+    summarise(mean_value = mean(value, na.rm = TRUE),
+              sd_value = sd(value, na.rm = TRUE)) %>%
+    ungroup()
+
+  # Step 2: Pivot the table to have mean_time01, mean_time02, sd_time01, and sd_time02 as separate columns
+  final_table <- summary_stats %>%
+    pivot_wider(names_from = time_pt, 
+                values_from = c(mean_value, sd_value)) %>%
+    unnest(cols = c(mean_value_0, mean_value_1,
+                    sd_value_0, sd_value_1)) %>%
+    rename(mean_time01 = mean_value_0, 
+           mean_time02 = mean_value_1,
+           sd_time01 = sd_value_0,
+           sd_time02 = sd_value_1) %>%
+    select(variable, run_type, mean_time01, sd_time01, mean_time02, sd_time02) %>%
+    mutate_if(is.numeric, round, digits = 2)
+
+  return(final_table)
+}
+
+# Bayesian Model -----
+
+fit_bayes_model <- function(data, variable_filter, run_type_filter, intercept_prior, b_prior) {
+  
+  # Filter the data based on the specified variable and run_type
+  filtered_data <- data %>%
+    filter(variable == variable_filter, run_type == run_type_filter)
+  
+  # Extract mean and sd from the provided priors
+  intercept_mean <- intercept_prior[1]
+  intercept_sd <- intercept_prior[2]
+  b_mean <- b_prior[1]
+  b_sd <- b_prior[2]
+  
+  # Define stanvars for intercept and b priors
+  stanvars <- stanvar(intercept_mean, name='intercept_mean') +
+              stanvar(intercept_sd, name='intercept_sd') +
+              stanvar(b_mean, name='b_mean') +
+              stanvar(b_sd, name='b_sd')
+  
+  # Set up priors using the custom parameters
+  prs <- c(prior(normal(intercept_mean, intercept_sd), class = "Intercept"),
+           prior(normal(b_mean, b_sd), class = "b"),
+           prior(cauchy(0, 10), class = "sd"),
+           prior(cauchy(0, 10), class = "sigma"))
+  
+  # Fit the Bayesian model using the filtered data
+  bayes_model <- brm(
+    formula = value ~ 1 + time_pt + (1 | sub_id),
+    data = filtered_data,
+    family = gaussian(),
+    prior = prs,
+    stanvars = stanvars,
+    warmup = 2000, iter = 10000,
+    control = list(adapt_delta = 0.98), 
+    refresh = 0  # Prevent printing of progress
+  )
+  
+  return(bayes_model)
+}
+
+# ICC3,1 from psych package
+
+calculate_freq_icc <- function(data) {
+  
+  # Get unique combinations of variable and run_type
+  combinations <- unique(data[c("variable", "run_type")])
+  
+  # Initialize an empty data frame to store results
+  results <- data.frame(variable=character(), run_type=character(), icc_31=numeric(),
+                        lower_bound=numeric(), upper_bound=numeric(), stringsAsFactors=FALSE)
+  
+  # Loop over each combination
+  for (i in 1:nrow(combinations)) {
+    variable_filter <- combinations$variable[i]
+    run_type_filter <- combinations$run_type[i]
+    
+    # Filter the data
+    filtered_data <- data %>%
+      filter(variable == variable_filter, run_type == run_type_filter) %>%
+      pivot_wider(names_from = time_pt, values_from = value, names_prefix = "time_pt_") %>%
+      select(time_pt_0, time_pt_1) 
+    
+    # Calculate ICC
+    icc_results <- ICC(filtered_data)
+    
+    # Extract specific ICC values
+    icc_values <- icc_results[["results"]][["ICC"]]
+    
+    # Extract the third ICC value
+    third_icc_value <- icc_values[3]
+    
+    # Extract lower and upper bounds
+    lower_bound <- icc_results[["results"]][["lower bound"]][3]
+    upper_bound <- icc_results[["results"]][["upper bound"]][3]
+    
+    # Create a result row
+    result_row <- data.frame(variable = variable_filter,
+                             run_type = run_type_filter,
+                             icc_freq = third_icc_value,
+                             icc_31_freq_025 = lower_bound,
+                             icc_31_freq_975 = upper_bound)
+    
+    # Bind this row to the results data frame
+    results <- rbind(results, result_row)
+  }
+  
+  return(results)
+}
+```
+
+### Summary Statistics
+
+```{r}
+stats_tbl <- calculate_summary_stats(reliability_data)
 ```
 
 ```{r}
+#| label: Mean & SD Table
 
-##### Tibia Peak Accel (PA) 
-
-# Running ---
-
-# wide
-run_tibia_pa <- read_csv("data/ch.3_reliability_data.csv") %>%
-  filter(str_detect(run_type, "_run$")) %>%
-  filter(variable == "res_g_avg_peak_rt_500hz") %>%
-  select(-variable) %>%
-  mutate(run_type = str_replace(run_type, "_.*", "")) %>% #removes _500hz
-  pivot_wider(names_from = run_type, values_from = value)
-
-# long (for models)
-run_tibia_pa_lg <- run_tibia_pa %>%
-  pivot_longer(cols = c(time01, time02), names_to = "time", values_to = "value") %>%
-  mutate(time = if_else(time == "time01", 0, 1))
-
-# Walking ---
-
-# wide
-walk_tibia_pa <- read_csv("data/ch.3_reliability_data.csv") %>%
-  filter(str_detect(run_type, "_walk$")) %>%
-  filter(variable == "res_g_avg_peak_rt_500hz") %>%
-  select(-variable) %>%
-  mutate(run_type = str_replace(run_type, "_.*", "")) %>% #removes _500hz
-  pivot_wider(names_from = run_type, values_from = value)
-
-# long (for models)
-walk_tibia_pa_lg <- walk_tibia_pa %>%
-  pivot_longer(cols = c(time01, time02), names_to = "time", values_to = "value") %>%
-  mutate(time = if_else(time == "time01", 0, 1))
-
-
-##### Lower Back Peak Accel 
-
+reactable(
+  stats_tbl,
+  striped = TRUE,
+  highlight = TRUE,
+  bordered = TRUE, 
+  filterable = TRUE, 
+  pagination = FALSE
+)
 ```
 
 ### Intraclass Correlation Coefficient (ICC)
@@ -153,59 +240,26 @@ Using `ICC()` from [psych](https://cran.r-project.org/web/packages/psych/psych.p
 ```{r}
 
 # Looking at ICC3 from psych package
-run_tibia_pa %>%
-  select(-sub_id) %>%
-  ICC()
-```
-
-```{r}
-
-# Multilevel Model (varying interceps)
-freq_model <- lmer(data = run_tibia_pa_lg, value ~ 1 + time + (1 | sub_id))
-```
-
-```{r}
-
-# ICC point estimate
-icc_freq <- icc(freq_model)
-icc_freq
+freq_icc_tbl <- calculate_freq_icc(reliability_data)
 ```
 
 #### Bayesian Approach
 
 ```{r}
 
-# Multilevel Model (varying interceps)
-bayes_model <- brm(
-  
-               data = run_tibia_pa_lg,
-                   
-               family = gaussian(),
-               
-               value ~ 1 + time + (1 | sub_id),
-               
-               prior = c(prior(normal(12, 3.0), class = Intercept),
-                        prior(normal(0, 2.0), class = b), 
-                        prior(cauchy(0, 10), class = sd),
-                        prior(cauchy(0, 10), class = sigma)),
-               
-               warmup = 2000, iter = 10000,
-               control = list(adapt_delta = 0.98)
-               
-               )
+# Running - Right Tibia Peak Accel
+run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(12, 3), c(0, 2))
 ```
 
 ```{r}
-
-# Draws from Posteior
-draws <- bayes_model %>% 
-         spread_draws(b_Intercept, b_time, sd_sub_id__Intercept, sigma)
+# Running - Back Peak Accel
+run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(6, 3), c(0, 2))
 ```
 
 ```{r}
 
 # ICC point estimate
-icc_bayes <- icc(bayes_model)
+icc_bayes <- icc(run_lb_pa)
 icc_bayes
 ```
 
@@ -214,7 +268,7 @@ Estimation of Credible Interval for ICC
 ```{r}
 
 # Extracting posterior samples
-posterior_samples <- as_draws_df(bayes_model, variable = c("sd_sub_id__Intercept", "sigma"))
+posterior_samples <- as_draws_df(run_lb_pa, variable = c("sd_sub_id__Intercept", "sigma"))
 
 # Calculate ICC for each posterior sample
 icc_distribution <- posterior_samples %>%
@@ -230,6 +284,9 @@ icc_distribution <- posterior_samples %>%
 # Assuming icc_distribution is the data frame containing the ICC values
 icc_89_credible_interval <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
 icc_89_credible_interval
+
+icc_95_credible_interval <- quantile(icc_distribution$icc, probs = c(0.025, 0.975))
+icc_95_credible_interval
 ```
 
 ### Standard Error of Measurement (SEM)
@@ -240,7 +297,14 @@ Calculatied as the *mean square error term from a repeated measures ANOVA* as de
 
 ```{r}
 
-anova_model <- aov(value ~ time + Error(sub_id/time), data = run_tibia_pa_lg)
+data <- reliability_data %>%
+    filter(variable == "rt_res_pk_accel_g", run_type == "run")
+
+```
+
+```{r}
+
+anova_model <- aov(value ~ time_pt + Error(sub_id/time_pt), data = data)
 anova_summary <- summary(anova_model)
 print(anova_summary)
 ```

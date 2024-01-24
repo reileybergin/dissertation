@@ -245,6 +245,21 @@ freq_icc_tbl <- calculate_freq_icc(reliability_data)
 
 #### Bayesian Approach
 
+**Model (using peak tibial acceleration as an example):**
+
+$$
+\begin{align*}
+\text{PTA}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
+\mu_i & = \alpha_{\text{subject}[i]} + \beta_{} \times \text{Time2}_i \\
+\alpha        & \sim \operatorname{Normal}(12, 3.0) \\
+\beta         & \sim \operatorname{Normal}(0, 2.0) \\
+\sigma        & \sim \operatorname{HalfCauchy}(10) \\
+\sigma_\alpha & \sim \operatorname{HalfCauchy}(10) \\
+\end{align*}
+$$
+
+### 
+
 ```{r}
 
 # Running - Right Tibia Peak Accel

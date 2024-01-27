@@ -212,55 +212,53 @@ calculate_freq_icc <- function(data) {
   return(results)
 }
 
-# Calculates the mode based on the density of the ICC values. 
-# NOTE: This is a simple approach and may not be perfect for multimodal distributions.
-get_mode <- function(x) {
-  dens <- density(x)
-  x[dens$y == max(dens$y)]
-}
 
 # Calculate ICC estimates using bayesian posterior
 
-calculate_bayes_icc <- function(model_and_metadata) {
+calculate_bayes_icc <- function(models_and_metadata_list) {
   
-  # Get model
-  bmod <- model_and_metadata$model
+  # Function to process a single model_and_metadata
+  process_single_model <- function(model_and_metadata) {
+    # Get model
+    bmod <- model_and_metadata$model
 
-  # Extracting posterior samples
-  posterior_samples <- as_draws_df(bmod, variable = c("sd_sub_id__Intercept", "sigma"))
+    # Extracting posterior samples
+    posterior_samples <- as_draws_df(bmod, variable = c("sd_sub_id__Intercept", "sigma"))
 
-  # Calculate ICC for each posterior sample
-  icc_distribution <- posterior_samples %>%
-    mutate(
-      sd_intercepts = sd_sub_id__Intercept^2,
-      sd_residual = sigma^2 
-    ) %>%
-    mutate(icc = sd_intercepts / (sd_intercepts + sd_residual))
-  
-  # Calculate summary statistics
-  easystats_icc <- icc(bmod)
-  mean_icc <- mean(icc_distribution$icc)
-  ci_025 <- quantile(icc_distribution$icc, probs = 0.025)
-  ci_975 <- quantile(icc_distribution$icc, probs = 0.975)
-  ci_055 <- quantile(icc_distribution$icc, probs = 0.055)
-  ci_945 <- quantile(icc_distribution$icc, probs = 0.945)
+    # Calculate ICC for each posterior sample
+    icc_distribution <- posterior_samples %>%
+      mutate(
+        sd_intercepts = sd_sub_id__Intercept^2,
+        sd_residual = sigma^2 
+      ) %>%
+      mutate(icc = sd_intercepts / (sd_intercepts + sd_residual))
     
-  # Create a single result row
-  result_row <- data.frame(variable = model_and_metadata$variable,
-                           run_type = model_and_metadata$run_type,
-                           icc_bayes_easystats = easystats_icc$ICC_adjusted,
-                           icc_bayes_mean = mean_icc,
-                           icc_bayes_025 = ci_025,
-                           icc_bayes_975 = ci_975, 
-                           icc_bayes_055 = ci_055, 
-                           icc_bayes_945 = ci_945)
+    # Calculate summary statistics
+    easystats_icc <- icc(bmod)
+    mean_icc <- mean(icc_distribution$icc)
+    ci_025 <- quantile(icc_distribution$icc, probs = 0.025)
+    ci_975 <- quantile(icc_distribution$icc, probs = 0.975)
+    ci_055 <- quantile(icc_distribution$icc, probs = 0.055)
+    ci_945 <- quantile(icc_distribution$icc, probs = 0.945)
+      
+    # Create a single result row
+    result_row <- data.frame(variable = model_and_metadata$variable,
+                             run_type = model_and_metadata$run_type,
+                             icc_bayes_easystats = easystats_icc$ICC_adjusted,
+                             icc_bayes_mean = mean_icc,
+                             icc_bayes_025 = ci_025,
+                             icc_bayes_975 = ci_975, 
+                             icc_bayes_055 = ci_055, 
+                             icc_bayes_945 = ci_945)
 
-  return(result_row)
+    return(result_row)
+  }
+
+  # Apply the function to each element in the list and combine results
+  results <- do.call(rbind, lapply(models_and_metadata_list, process_single_model))
+
+  return(results)
 }
-```
-
-```{r}
-bayes_icc_tbl <- calculate_bayes_icc(run_avg_pta)
 ```
 
 ### Summary Statistics
@@ -283,6 +281,38 @@ reactable(
 )
 ```
 
+### Bayesian Model
+
+**Model (using peak tibial acceleration as an example):**
+
+$$
+\begin{align*}
+\text{PTA}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
+\mu_i & = \alpha_{\text{subject}[i]} + \beta_{} \times \text{Time2}_i \\
+\alpha        & \sim \operatorname{Normal}(8, 3.0) \\
+\beta         & \sim \operatorname{Normal}(0.1, 0.05) \\
+\sigma        & \sim \operatorname{HalfCauchy}(10) \\
+\sigma_\alpha & \sim \operatorname{HalfCauchy}(10) \\
+\end{align*}
+$$
+
+```{r}
+#| label: Bayes Models
+
+# Running ---
+
+# Tibia Peak Accel
+
+# Right 
+run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+
+# Left 
+run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+
+# Avgerage 
+run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+```
+
 ### Intraclass Correlation Coefficient (ICC)
 
 Using `ICC()` from [psych](https://cran.r-project.org/web/packages/psych/psych.pdf) package and `icc()`from the [easystats](https://github.com/easystats/easystats) package.
@@ -296,70 +326,9 @@ freq_icc_tbl <- calculate_freq_icc(reliability_data)
 
 #### Bayesian Approach
 
-**Model (using peak tibial acceleration as an example):**
-
-$$
-\begin{align*}
-\text{PTA}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
-\mu_i & = \alpha_{\text{subject}[i]} + \beta_{} \times \text{Time2}_i \\
-\alpha        & \sim \operatorname{Normal}(12, 3.0) \\
-\beta         & \sim \operatorname{Normal}(0, 2.0) \\
-\sigma        & \sim \operatorname{HalfCauchy}(10) \\
-\sigma_\alpha & \sim \operatorname{HalfCauchy}(10) \\
-\end{align*}
-$$
-
-### 
-
 ```{r}
-
-# Running - Right Tibia Peak Accel
-run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(12, 3), c(0, 2))
-```
-
-```{r}
-run_rt_pta_2 <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0, 0.05))
-```
-
-```{r}
-run_rt_pta_3 <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
-```
-
-```{r}
-run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
-```
-
-```{r}
-
-# ICC point estimate
-icc_bayes <- icc(run_avg_pta$model)
-icc_bayes$ICC_adjusted
-```
-
-Estimation of Credible Interval for ICC
-
-```{r}
-
-# Extracting posterior samples
-posterior_samples <- as_draws_df(run_avg_pta$model, variable = c("sd_sub_id__Intercept", "sigma"))
-
-# Calculate ICC for each posterior sample
-icc_distribution <- posterior_samples %>%
-  mutate(
-    sd_sub_id__Intercept = sd_sub_id__Intercept^2,
-    sigma = sigma^2
-  ) %>%
-  mutate(icc = sd_sub_id__Intercept / (sd_sub_id__Intercept + sigma))
-```
-
-```{r}
-
-# Assuming icc_distribution is the data frame containing the ICC values
-icc_89_credible_interval <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
-icc_89_credible_interval
-
-icc_95_credible_interval <- quantile(icc_distribution$icc, probs = c(0.025, 0.975))
-icc_95_credible_interval
+# Calculates posterior distribution and samples ICC values
+bayes_icc_tbl <- calculate_bayes_icc(list(run_avg_pta, run_rt_pta, run_lt_pta))
 ```
 
 ### Standard Error of Measurement (SEM)

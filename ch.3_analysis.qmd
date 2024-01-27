@@ -159,7 +159,8 @@ fit_bayes_model <- function(data, variable_filter, run_type_filter, intercept_pr
     refresh = 0  # Prevent printing of progress
   )
   
-  return(bayes_model)
+  # Create a list to return the model along with inputs for variable nd run_type
+  return(list(model = bayes_model, variable = variable_filter, run_type = run_type_filter))
 }
 
 # ICC3,1 from psych package
@@ -170,7 +171,7 @@ calculate_freq_icc <- function(data) {
   combinations <- unique(data[c("variable", "run_type")])
   
   # Initialize an empty data frame to store results
-  results <- data.frame(variable=character(), run_type=character(), icc_31=numeric(),
+  results <- data.frame(variable=character(), run_type=character(), icc=numeric(),
                         lower_bound=numeric(), upper_bound=numeric(), stringsAsFactors=FALSE)
   
   # Loop over each combination
@@ -210,6 +211,56 @@ calculate_freq_icc <- function(data) {
   
   return(results)
 }
+
+# Calculates the mode based on the density of the ICC values. 
+# NOTE: This is a simple approach and may not be perfect for multimodal distributions.
+get_mode <- function(x) {
+  dens <- density(x)
+  x[dens$y == max(dens$y)]
+}
+
+# Calculate ICC estimates using bayesian posterior
+
+calculate_bayes_icc <- function(model_and_metadata) {
+  
+  # Get model
+  bmod <- model_and_metadata$model
+
+  # Extracting posterior samples
+  posterior_samples <- as_draws_df(bmod, variable = c("sd_sub_id__Intercept", "sigma"))
+
+  # Calculate ICC for each posterior sample
+  icc_distribution <- posterior_samples %>%
+    mutate(
+      sd_intercepts = sd_sub_id__Intercept^2,
+      sd_residual = sigma^2 
+    ) %>%
+    mutate(icc = sd_intercepts / (sd_intercepts + sd_residual))
+  
+  # Calculate summary statistics
+  easystats_icc <- icc(bmod)
+  mean_icc <- mean(icc_distribution$icc)
+  ci_025 <- quantile(icc_distribution$icc, probs = 0.025)
+  ci_975 <- quantile(icc_distribution$icc, probs = 0.975)
+  ci_055 <- quantile(icc_distribution$icc, probs = 0.055)
+  ci_945 <- quantile(icc_distribution$icc, probs = 0.945)
+    
+  # Create a single result row
+  result_row <- data.frame(variable = model_and_metadata$variable,
+                           run_type = model_and_metadata$run_type,
+                           icc_bayes_easystats = easystats_icc$ICC_adjusted,
+                           icc_bayes_mean = mean_icc,
+                           icc_bayes_025 = ci_025,
+                           icc_bayes_975 = ci_975, 
+                           icc_bayes_055 = ci_055, 
+                           icc_bayes_945 = ci_945)
+
+  return(result_row)
+}
+```
+
+```{r}
+bayes_icc_tbl <- calculate_bayes_icc(run_avg_pta)
 ```
 
 ### Summary Statistics
@@ -275,10 +326,14 @@ run_rt_pta_3 <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(
 ```
 
 ```{r}
+run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+```
+
+```{r}
 
 # ICC point estimate
-icc_bayes <- icc(run_rt_pta_3)
-icc_bayes
+icc_bayes <- icc(run_avg_pta$model)
+icc_bayes$ICC_adjusted
 ```
 
 Estimation of Credible Interval for ICC
@@ -286,7 +341,7 @@ Estimation of Credible Interval for ICC
 ```{r}
 
 # Extracting posterior samples
-posterior_samples <- as_draws_df(run_lb_pa, variable = c("sd_sub_id__Intercept", "sigma"))
+posterior_samples <- as_draws_df(run_avg_pta$model, variable = c("sd_sub_id__Intercept", "sigma"))
 
 # Calculate ICC for each posterior sample
 icc_distribution <- posterior_samples %>%

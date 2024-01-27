@@ -201,8 +201,8 @@ calculate_freq_icc <- function(data) {
     result_row <- data.frame(variable = variable_filter,
                              run_type = run_type_filter,
                              icc_freq = third_icc_value,
-                             icc_31_freq_025 = lower_bound,
-                             icc_31_freq_975 = upper_bound)
+                             icc_freq_025 = lower_bound,
+                             icc_freq_975 = upper_bound)
     
     # Bind this row to the results data frame
     results <- rbind(results, result_row)
@@ -215,6 +215,7 @@ calculate_freq_icc <- function(data) {
 ### Summary Statistics
 
 ```{r}
+# table with mean and sd
 stats_tbl <- calculate_summary_stats(reliability_data)
 ```
 
@@ -238,7 +239,6 @@ Using `ICC()` from [psych](https://cran.r-project.org/web/packages/psych/psych.p
 #### Frequentist Approach
 
 ```{r}
-
 # Looking at ICC3 from psych package
 freq_icc_tbl <- calculate_freq_icc(reliability_data)
 ```
@@ -267,14 +267,17 @@ run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(12
 ```
 
 ```{r}
-# Running - Back Peak Accel
-run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(6, 3), c(0, 2))
+run_rt_pta_2 <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0, 0.05))
+```
+
+```{r}
+run_rt_pta_3 <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
 ```
 
 ```{r}
 
 # ICC point estimate
-icc_bayes <- icc(run_lb_pa)
+icc_bayes <- icc(run_rt_pta_3)
 icc_bayes
 ```
 

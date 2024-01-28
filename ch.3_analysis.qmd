@@ -50,6 +50,11 @@ reliability_data <- read_csv("data/ch.3_reliability_data.csv") %>%
     variable = str_replace(variable, "_500hz$", "")) %>%
   
   
+  # Convert RMS valus to gs - divide value by 9.8 if variable starts with "accel"
+  mutate(
+    value = if_else(str_detect(variable, "^accel"), value / 9.8, value)
+  ) %>%
+  
   # lb = low back, rt = right tibia, lt = left tibia, 
   mutate(
     variable = str_replace_all(variable, c(
@@ -66,6 +71,9 @@ reliability_data <- read_csv("data/ch.3_reliability_data.csv") %>%
 rt_lt_avg <- reliability_data %>%
   filter(variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
   group_by(sub_id, run_type, time_pt) %>%
+  # NOTE: if a subject has a value for only one side (either lt or rt), 
+  # and the other side is missing (NA), 
+  # then the mean() function with na.rm = TRUE will calculate the mean using only the available value
   summarize(rt_lt_avg_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
   
   # format the table to match the orginal
@@ -93,29 +101,32 @@ vars_reliability <- reliability_data %>%
 ```{r}
 #| label: Functions
 
-
 # Mean and SD -----
 
 calculate_summary_stats <- function(data) {
   
-  # Step 1: Calculate mean and standard deviation for each combination of variable, run_type, and time_pt
+  # Step 1: Calculate mean, standard deviation, and count for each combination of variable, run_type, and time_pt
   summary_stats <- data %>%
     group_by(variable, run_type, time_pt) %>%
     summarise(mean_value = mean(value, na.rm = TRUE),
-              sd_value = sd(value, na.rm = TRUE)) %>%
+              sd_value = sd(value, na.rm = TRUE),
+              n = n()) %>%  # Adding count of observations
     ungroup()
 
-  # Step 2: Pivot the table to have mean_time01, mean_time02, sd_time01, and sd_time02 as separate columns
+  # Step 2: Pivot the table to have mean_time01, mean_time02, sd_time01, sd_time02, and n_time01, n_time02 as separate columns
   final_table <- summary_stats %>%
     pivot_wider(names_from = time_pt, 
-                values_from = c(mean_value, sd_value)) %>%
+                values_from = c(mean_value, sd_value, n)) %>%
     unnest(cols = c(mean_value_0, mean_value_1,
-                    sd_value_0, sd_value_1)) %>%
+                    sd_value_0, sd_value_1,
+                    n_0, n_1)) %>%
     rename(mean_time01 = mean_value_0, 
            mean_time02 = mean_value_1,
-           sd_time01 = sd_value_0,
-           sd_time02 = sd_value_1) %>%
-    select(variable, run_type, mean_time01, sd_time01, mean_time02, sd_time02) %>%
+           sd_time01 = sd_value_0, 
+           sd_time02 = sd_value_1,
+           n_time01 = n_0, 
+           n_time02 = n_1) %>%
+    select(variable, run_type, n_time01, mean_time01, sd_time01, n_time02, mean_time02, sd_time02) %>%
     mutate_if(is.numeric, round, digits = 2)
 
   return(final_table)
@@ -163,9 +174,27 @@ fit_bayes_model <- function(data, variable_filter, run_type_filter, intercept_pr
   return(list(model = bayes_model, variable = variable_filter, run_type = run_type_filter))
 }
 
-# ICC3,1 from psych package
+# Non-Bayes MLM ---
 
-calculate_freq_icc <- function(data) {
+fit_lmm_model <- function(data, variable_filter, run_type_filter) {
+  
+  # Filter the data based on the specified variable and run_type
+  filtered_data <- data %>%
+    filter(variable == variable_filter, run_type == run_type_filter)
+
+  # Fit the linear mixed model using the filtered data
+  lmm_model <- lmer(
+    formula = value ~ 1 + time_pt + (1 | sub_id),
+    data = filtered_data,
+  )
+  
+  # Create a list to return the model along with inputs for variable and run_type
+  return(list(model = lmm_model, variable = variable_filter, run_type = run_type_filter))
+}
+
+# ICC3,1 from psych package ---
+
+calculate_freq_icc_psych <- function(data) {
   
   # Get unique combinations of variable and run_type
   combinations <- unique(data[c("variable", "run_type")])
@@ -183,7 +212,9 @@ calculate_freq_icc <- function(data) {
     filtered_data <- data %>%
       filter(variable == variable_filter, run_type == run_type_filter) %>%
       pivot_wider(names_from = time_pt, values_from = value, names_prefix = "time_pt_") %>%
-      select(time_pt_0, time_pt_1) 
+      select(time_pt_0, time_pt_1) %>%
+      # Remove rows where either time point is missing
+      filter(!is.na(time_pt_0) & !is.na(time_pt_1))
     
     # Calculate ICC
     icc_results <- ICC(filtered_data)
@@ -191,8 +222,8 @@ calculate_freq_icc <- function(data) {
     # Extract specific ICC values
     icc_values <- icc_results[["results"]][["ICC"]]
     
-    # Extract the third ICC value
-    third_icc_value <- icc_values[3]
+    # Extract the second ICC value (ICC,2)
+    second_icc_value <- icc_values[2]
     
     # Extract lower and upper bounds
     lower_bound <- icc_results[["results"]][["lower bound"]][3]
@@ -201,7 +232,7 @@ calculate_freq_icc <- function(data) {
     # Create a result row
     result_row <- data.frame(variable = variable_filter,
                              run_type = run_type_filter,
-                             icc_freq = third_icc_value,
+                             icc_freq = second_icc_value,
                              icc_freq_025 = lower_bound,
                              icc_freq_975 = upper_bound)
     
@@ -212,13 +243,13 @@ calculate_freq_icc <- function(data) {
   return(results)
 }
 
-
-# Calculate ICC estimates using bayesian posterior
+# Calculate ICC estimates using bayesian posterior ---
 
 calculate_bayes_icc <- function(models_and_metadata_list) {
   
   # Function to process a single model_and_metadata
   process_single_model <- function(model_and_metadata) {
+    
     # Get model
     bmod <- model_and_metadata$model
 
@@ -250,6 +281,34 @@ calculate_bayes_icc <- function(models_and_metadata_list) {
                              icc_bayes_975 = ci_975, 
                              icc_bayes_055 = ci_055, 
                              icc_bayes_945 = ci_945)
+
+    return(result_row)
+  }
+
+  # Apply the function to each element in the list and combine results
+  results <- do.call(rbind, lapply(models_and_metadata_list, process_single_model))
+
+  return(results)
+}
+
+# Calculate ICC estimates using lmm ---
+
+calculate_freq_icc_lmm <- function(models_and_metadata_list) {
+  
+  # Function to process a single model_and_metadata
+  process_single_model <- function(model_and_metadata) {
+    
+    # Get model
+    lmm <- model_and_metadata$model
+    
+    # Calculate summary statistics
+    easystats_icc <- icc(lmm)
+
+      
+    # Create a single result row
+    result_row <- data.frame(variable = model_and_metadata$variable,
+                             run_type = model_and_metadata$run_type,
+                             icc_lmm_easystats = easystats_icc$ICC_adjusted)
 
     return(result_row)
   }
@@ -301,16 +360,45 @@ $$
 
 # Running ---
 
-# Tibia Peak Accel
+# Tibia Peak Accel - Right 
+bm_run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
+# Tibia Peak Accel - Left 
+bm_run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
+# Tibia Peak Accel - Avg
+bm_run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
 
-# Right 
-run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+# Low Back Peak Accel
+bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(3.6, 0.75), c(0.04, 0.01))
+# Low Back RMS x
+bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
+# Low Back RMS Y
+bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", c(1.2, 0.12), c(0.0, 0.05))
+# Low Back RMS z
+bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
+```
 
-# Left 
-run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+### Regular Linear Multilevel Model
 
-# Avgerage 
-run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8, 3), c(0.1, 0.05))
+```{r}
+#| label: LMM Models
+
+# Running ---
+
+# Tibia Peak Accel - Right 
+lmm_run_rt_pta <- fit_lmm_model(reliability_data, "rt_res_pk_accel_g", "run")
+# Tibia Peak Accel - Left 
+lmm_run_lt_pta <- fit_lmm_model(reliability_data, "lt_res_pk_accel_g", "run")
+# Tibia Peak Accel - Avg
+lmm_run_avg_pta <- fit_lmm_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run")
+
+# Low Back Peak Accel
+lmm_run_lb_pa <- fit_lmm_model(reliability_data, "lb_res_pk_accel_g", "run")
+# Low Back RMS x
+lmm_run_lb_rms_x <- fit_lmm_model(reliability_data, "lb_accel_x_rms_g", "run")
+# Low Back RMS Y
+lmm_run_lb_rms_y <- fit_lmm_model(reliability_data, "lb_accel_y_rms_g", "run")
+# Low Back RMS z
+lmm_run_lb_rms_z <- fit_lmm_model(reliability_data, "lb_accel_z_rms_g", "run")
 ```
 
 ### Intraclass Correlation Coefficient (ICC)
@@ -320,15 +408,24 @@ Using `ICC()` from [psych](https://cran.r-project.org/web/packages/psych/psych.p
 #### Frequentist Approach
 
 ```{r}
-# Looking at ICC3 from psych package
-freq_icc_tbl <- calculate_freq_icc(reliability_data)
+# Looking at ICC 2,1 from psych package
+freq_icc_pysch_tbl <- calculate_freq_icc_psych(reliability_data)
+```
+
+```{r}
+# Using LMM and easystats icc 
+freq_icc_lmm_tbl <- calculate_freq_icc_lmm(list(
+  lmm_run_avg_pta, lmm_run_rt_pta, lmm_run_lt_pta, 
+  lmm_run_lb_pa, lmm_run_lb_rms_x, lmm_run_lb_rms_y, lmm_run_lb_rms_z))
 ```
 
 #### Bayesian Approach
 
 ```{r}
 # Calculates posterior distribution and samples ICC values
-bayes_icc_tbl <- calculate_bayes_icc(list(run_avg_pta, run_rt_pta, run_lt_pta))
+bayes_icc_tbl <- calculate_bayes_icc(list(
+  run_avg_pta, run_rt_pta, run_lt_pta, 
+  run_lb_pa, run_lb_rms_x, run_lb_rms_y, run_lb_rms_z))
 ```
 
 ### Standard Error of Measurement (SEM)
@@ -339,14 +436,14 @@ Calculatied as the *mean square error term from a repeated measures ANOVA* as de
 
 ```{r}
 
-data <- reliability_data %>%
-    filter(variable == "rt_res_pk_accel_g", run_type == "run")
+test_data <- reliability_data %>%
+    filter(variable == "rt_lt_avg_res_pk_accel_g", run_type == "run")
 
 ```
 
 ```{r}
 
-anova_model <- aov(value ~ time_pt + Error(sub_id/time_pt), data = data)
+anova_model <- aov(value ~ time_pt + Error(sub_id/time_pt), data = test_data)
 anova_summary <- summary(anova_model)
 print(anova_summary)
 ```
@@ -357,7 +454,8 @@ print(anova_summary)
 mse <-  1.499
 
 # Calculate the SEM
-sem_anova <- sqrt(mse)
+sem_anova <- sqrt(mse_sub_id_time_pt <- summary(aov(value ~ time_pt + Error(sub_id/time_pt), data = test_data))$`Error: sub_id:time_pt`[[1]]["Residuals", "Mean Sq"]
+)
 
 print(sem_anova)
 ```
@@ -368,12 +466,12 @@ print(sem_anova)
 
 # Calculate the 89% credible interval for the SEM using sigma
 
-posterior_samples <- as_draws_df(bayes_model, variable = "sigma") %>%
+posterior_samples <- as_draws_df(run_avg_pta$model, variable = "sigma") %>%
   as_tibble()
 
-sem_89_credible_interval <- quantile(posterior_samples$sigma, probs = c(0.055, 0.945))
+sem_95_credible_interval <- quantile(posterior_samples$sigma, probs = c(0.025, 0.975))
 
-print(sem_89_credible_interval)
+print(sem_95_credible_interval)
 ```
 
 ### Coefficient of Variation (CoV)

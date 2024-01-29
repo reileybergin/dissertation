@@ -113,7 +113,7 @@ calculate_summary_stats <- function(data) {
               n = n()) %>%  # Adding count of observations
     ungroup()
 
-  # Step 2: Pivot the table to have mean_time01, mean_time02, sd_time01, sd_time02, and n_time01, n_time02 as separate columns
+  # Step 2: Pivot the table 
   final_table <- summary_stats %>%
     pivot_wider(names_from = time_pt, 
                 values_from = c(mean_value, sd_value, n)) %>%
@@ -265,22 +265,22 @@ calculate_bayes_icc <- function(models_and_metadata_list) {
       mutate(icc = sd_intercepts / (sd_intercepts + sd_residual))
     
     # Calculate summary statistics
-    easystats_icc <- icc(bmod)
     mean_icc <- mean(icc_distribution$icc)
-    ci_025 <- quantile(icc_distribution$icc, probs = 0.025)
-    ci_975 <- quantile(icc_distribution$icc, probs = 0.975)
-    ci_055 <- quantile(icc_distribution$icc, probs = 0.055)
-    ci_945 <- quantile(icc_distribution$icc, probs = 0.945)
+
+    # Calculate 95% Credible Intervals
+    ci_95_icc <- quantile(icc_distribution$icc, probs = c(0.025, 0.975))
+
+    # Calculate 89% Credible Intervals
+    ci_89_icc <- quantile(icc_distribution$icc, probs = c(0.055, 0.945))
       
     # Create a single result row
     result_row <- data.frame(variable = model_and_metadata$variable,
                              run_type = model_and_metadata$run_type,
-                             icc_bayes_easystats = easystats_icc$ICC_adjusted,
                              icc_bayes_mean = mean_icc,
-                             icc_bayes_025 = ci_025,
-                             icc_bayes_975 = ci_975, 
-                             icc_bayes_055 = ci_055, 
-                             icc_bayes_945 = ci_945)
+                             icc_bayes_ci95_lower = ci_95_icc[1],
+                             icc_bayes_ci95_upper = ci_95_icc[2],
+                             icc_bayes_ci89_lower = ci_89_icc[1],
+                             icc_bayes_ci89_upper = ci_89_icc[2])
 
     return(result_row)
   }
@@ -317,6 +317,120 @@ calculate_freq_icc_lmm <- function(models_and_metadata_list) {
   results <- do.call(rbind, lapply(models_and_metadata_list, process_single_model))
 
   return(results)
+}
+
+calculate_sem_anova <- function(data, Zcrit = 1.96) {
+  
+  # Get unique combinations of variable and run_type
+  combinations <- unique(data[c("variable", "run_type")])
+  
+  # Initialize an empty data frame to store results
+  results <- data.frame(variable=character(), run_type=character(), sem=numeric(),
+                        md=numeric(), cov=numeric(), stringsAsFactors=FALSE)
+  
+  for (i in 1:nrow(combinations)) {
+    variable_filter <- combinations$variable[i]
+    run_type_filter <- combinations$run_type[i]
+    
+    # Filter the data for the specific variable and run type
+    filtered_data <- data %>%
+      filter(variable == variable_filter, run_type == run_type_filter)
+
+    # Ensure each subject has entries for both time points 0 and 1
+    complete_subjects <- filtered_data %>%
+      group_by(sub_id) %>%
+      filter(all(c(0, 1) %in% time_pt)) %>%
+      ungroup()
+
+    # Calculate Grand Mean (Mg)
+    Mg <- mean(complete_subjects$value, na.rm = TRUE)
+
+    # Conduct ANOVA
+    anova_results <- aov(value ~ time_pt + Error(sub_id/time_pt), data = complete_subjects)
+    mse_sub_id_time_pt <- summary(anova_results)$`Error: sub_id:time_pt`[[1]]["Residuals", "Mean Sq"]
+    
+    # Calculate SEM
+    sem_anova <- sqrt(mse_sub_id_time_pt)
+
+    # Calculate MD
+    md_anova <- sem_anova * Zcrit * sqrt(2)
+
+    # Calculate CoV
+    cov_anova <- (sem_anova / Mg) * 100
+    
+    # Create a result row
+    result_row <- data.frame(variable = variable_filter,
+                             run_type = run_type_filter,
+                             sem = sem_anova,
+                             md = md_anova,
+                             cov = cov_anova)
+    
+    # Append the result row to the results data frame
+    results <- rbind(results, result_row)
+  }
+  
+  return(results)
+}
+
+```
+
+```{r}
+
+calculate_bayes_sem <- function(models_and_metadata_list) {
+  
+  # Function to process a single model_and_metadata
+  process_single_model <- function(model_and_metadata) {
+    
+    # Get model
+    bmod <- model_and_metadata$model
+
+    # Extracting posterior samples of sigma, b_Intercept, and b_time_pt
+    posterior_samples <- as_draws_df(bmod, variable = c("sigma", "b_Intercept", "b_time_pt"))
+
+    # Estimate the average mean across time points and calculate SEM and CoV
+    stats_distribution <- posterior_samples %>%
+      mutate(
+        estimated_mean_time_1 = b_Intercept,
+        estimated_mean_time_2 = b_Intercept + b_time_pt,
+        estimated_avg_mean = (estimated_mean_time_1 + estimated_mean_time_2) / 2,
+        sem = sigma,
+        cov = (sem / estimated_avg_mean) * 100
+      )
+    
+    # Calculate summary statistics for SEM and CoV
+    mean_sem <- mean(stats_distribution$sem)
+    mean_cov <- mean(stats_distribution$cov)
+
+    # Calculate 95% Credible Intervals
+    ci_95_sem <- quantile(stats_distribution$sem, probs = c(0.025, 0.975))
+    ci_95_cov <- quantile(stats_distribution$cov, probs = c(0.025, 0.975))
+
+    # Calculate 89% Credible Intervals
+    ci_89_sem <- quantile(stats_distribution$sem, probs = c(0.055, 0.945))
+    ci_89_cov <- quantile(stats_distribution$cov, probs = c(0.055, 0.945))
+      
+    # Create a single result row
+    result_row <- data.frame(variable = model_and_metadata$variable,
+                             run_type = model_and_metadata$run_type,
+                             sem_bayes_mean = mean_sem,
+                             cov_bayes_mean = mean_cov,
+                             sem_bayes_ci95_lower = ci_95_sem[1],
+                             sem_bayes_ci95_upper = ci_95_sem[2],
+                             cov_bayes_ci95_lower = ci_95_cov[1],
+                             cov_bayes_ci95_upper = ci_95_cov[2],
+                             sem_bayes_ci89_lower = ci_89_sem[1],
+                             sem_bayes_ci89_upper = ci_89_sem[2],
+                             cov_bayes_ci89_lower = ci_89_cov[1],
+                             cov_bayes_ci89_upper = ci_89_cov[2])
+
+    return(result_row)
+  }
+  
+  # Process each model_and_metadata and combine results
+  results <- lapply(models_and_metadata_list, process_single_model)
+  results_df <- do.call(rbind, results)
+
+  return(results_df)
 }
 ```
 
@@ -424,97 +538,55 @@ freq_icc_lmm_tbl <- calculate_freq_icc_lmm(list(
 ```{r}
 # Calculates posterior distribution and samples ICC values
 bayes_icc_tbl <- calculate_bayes_icc(list(
-  run_avg_pta, run_rt_pta, run_lt_pta, 
-  run_lb_pa, run_lb_rms_x, run_lb_rms_y, run_lb_rms_z))
+  bm_run_avg_pta, bm_run_rt_pta, bm_run_lt_pta, 
+  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z))
 ```
 
-### Standard Error of Measurement (SEM)
-
-Calculatied as the *mean square error term from a repeated measures ANOVA* as desribed Weir & Vincent in [Statistics in Kinesiology 5th Edition.](https://us.humankinetics.com/blogs/excerpt/standard-error-of-measurement)
+### Standard Error of Measurement (SEM), MD (Minimal Difference), & Coefficient of Variation (CoV)
 
 #### Frequentist Approach
 
-```{r}
+The SEM was calculated from the *mean square error term (MSE) of a repeated measures ANOVA* as described Weir & Vincent in [Statistics in Kinesiology 5th Edition.](#0)
 
-test_data <- reliability_data %>%
-    filter(variable == "rt_lt_avg_res_pk_accel_g", run_type == "run")
-
-```
-
-```{r}
-
-anova_model <- aov(value ~ time_pt + Error(sub_id/time_pt), data = test_data)
-anova_summary <- summary(anova_model)
-print(anova_summary)
-```
+$$
+\begin{align*}
+\text{SEM} & = \sqrt{\text{MSE}} \\
+\text{MD}  & = \text{SEM} \times Z_{\text{crit}} \times \sqrt{2} \\
+\text{CoV} & = \left( \frac{\text{SEM}}{\text{Grand Mean}} \right) \times 100 \\
+\end{align*}
+$$
 
 ```{r}
-
-# MSE from the ANOVA summary output
-mse <-  1.499
-
-# Calculate the SEM
-sem_anova <- sqrt(mse_sub_id_time_pt <- summary(aov(value ~ time_pt + Error(sub_id/time_pt), data = test_data))$`Error: sub_id:time_pt`[[1]]["Residuals", "Mean Sq"]
-)
-
-print(sem_anova)
+# Calculates SEM, MD, and CoV 
+freq_sem_tbl <- calculate_sem_anova(reliability_data)
 ```
 
 #### Bayesian Approach
 
-```{r}
+**Calculating SEM:**
 
-# Calculate the 89% credible interval for the SEM using sigma
+1.  **Extract Posterior Samples:** Obtain the posterior samples for the residual standard deviation (**`sigma`**) from the Bayesian model. **`sigma`** in a Bayesian regression model typically represents the standard deviation of residuals, analogous to the root of Mean Squared Error in frequentist models.
 
-posterior_samples <- as_draws_df(run_avg_pta$model, variable = "sigma") %>%
-  as_tibble()
+2.  **SEM Calculation:** Directly use the posterior samples of **`sigma`** as estimates of SEM. In this context, SEM is considered to be the standard deviation of the measurement error.
 
-sem_95_credible_interval <- quantile(posterior_samples$sigma, probs = c(0.025, 0.975))
+**Calculating CoV:**
 
-print(sem_95_credible_interval)
-```
+1.  **Estimate Mean:** Determine an average mean value for use in the CoV calculation. In the absence of a direct grand mean (Mg) across all observations, use an estimated mean. For example, calculate the average of the model's intercept (mean at Time 1) and the sum of the intercept and beta coefficient (mean at Time 2).
 
-### Coefficient of Variation (CoV)
+2.  **Extract Posterior Samples:** Extract the posterior samples for the intercept (**`b_Intercept`**), the slope or beta coefficient for time (**`b_time_pt`**), and **`sigma`**.
 
-#### Frequentist Approach
+3.  **Compute Average Mean and CoV:** For each set of posterior samples, calculate the estimated average mean across time points. Then, compute CoV as the ratio of SEM (posterior **`sigma`**) to the estimated average mean, multiplied by 100 to express it as a percentage.
 
-Calculatied by dividing the SEM (as calculated above) from the grand mean as desribed Weir & Vincent in [Statistics in Kinesiology 5th Edition.](https://us.humankinetics.com/blogs/excerpt/standard-error-of-measurement)
+**Credible Intervals:**
 
-```{r}
-
-grand_mean <- mean(run_tibia_pa_lg$value)
-
-freq_cov <- (sem_anova / grand_mean) *100
-freq_cov
-```
-
-#### Bayesian Approach
-
-```{r}
-# Extract posterior samples for intercept, slope, and sigma
-posterior_samples <- as_draws_df(bayes_model, variable = c("b_Intercept", "b_time", "sigma")) %>%
-  as_tibble()
-
-# Assuming the intercept is a reasonable approximation of the grand mean
-# Calculate the CoV for each posterior sample
-cov_distribution <- posterior_samples %>%
-  mutate(grand_mean = b_Intercept,
-         cov = (sigma / grand_mean) * 100)
-```
+The 95% and 89% credible intervals for both the Standard Error of Measurement (SEM) and Coefficient of Variation (CoV) are calculated from the posterior distribution by drawing samples, providing a range of values within which the true SEM and CoV are likely to fall with 95% and 89% probability, respectively.
 
 ```{r}
 
-# Calculate the 89% credible interval for CoV
-cov_89_credible_interval <- quantile(cov_distribution$cov, probs = c(0.055, 0.945))
-print(cov_89_credible_interval)
-```
-
-```{r}
-
-# Find the x-value (cov value) where the density is maximum (the mode)
-dens <- density(cov_distribution$cov)
-estimated_mode <- dens$x[which.max(dens$y)]
-print(estimated_mode)
+# Calculate SEM and CoV using parameters from posterior 
+bayes_sem_tbl <- calculate_bayes_sem(list(
+  bm_run_avg_pta, bm_run_rt_pta, bm_run_lt_pta, 
+  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z))
 ```
 
 ## Validity

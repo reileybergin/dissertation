@@ -372,9 +372,7 @@ calculate_sem_anova <- function(data, Zcrit = 1.96) {
   return(results)
 }
 
-```
-
-```{r}
+# Bayes SEM and CoV ---
 
 calculate_bayes_sem <- function(models_and_metadata_list) {
   
@@ -605,23 +603,22 @@ library(see)
 
 # Running data ---
 
-run <- read_csv("data/ch.3_validity_data.csv") %>%
-  filter(run_type == "run", leg == "right") %>%
-  # Subjects that have missing data and need to be removed to balance data
-  #filter(!(subject %in% c("Sub03", "Sub10", "Sub12", "Sub13"))) %>%
+validity_run_data <- read_csv("data/ch.3_validity_data.csv") %>%
+  filter(run_type == "run") %>%
   select(-run_type, -leg) %>%
   pivot_wider(names_from = variable, values_from = value) %>%
-  select(starts_with("imu_"), everything()) %>%
   # Remove '_500hz'
   rename_with(~ gsub("_500hz", "", .), .cols = everything())  
 
 
-# Rt tibia vs force magnitude variables ---
-run_tibia_force_mag <- run %>%
-  # Keep columns starting with 'imu_' or ending with '_force_mag'
-   select(matches("^imu_.*_rt$|^.*_force_mag$"))
-
 # Walking data ---
+
+validity_walk_data <- read_csv("data/ch.3_validity_data.csv") %>%
+  filter(run_type == "walk") %>%
+  select(-run_type, -leg) %>%
+  pivot_wider(names_from = variable, values_from = value) %>%
+  # Remove '_500hz'
+  rename_with(~ gsub("_500hz", "", .), .cols = everything())  
 
 ```
 
@@ -629,38 +626,24 @@ run_tibia_force_mag <- run %>%
 
 Using `correlation` from the [easystats](https://github.com/easystats/easystats) package.
 
-#### Frequentist Approach
+#### Frequentist Approach Only
 
 ```{r}
+#| label: Pearson correlation for each combination
 
-results_freq <- correlation(run)
-results_freq
+# Running
+run_correlations_tbl <- correlation(validity_run_data)
+
+# Walking 
+walk_correlations_tbl <- correlation(validity_walk_data)
 ```
 
 ```{r}
+# Scatter Plots
 
-# Correlation Matriz
-results_freq%>%
-  summary(redundant = TRUE) %>%
-  plot()
-```
+# Running
+plot(cor_test(validity_run_data, "max_grf_mag_z_bm", "max_knee_force_z"))
 
-```{r}
-
-# Scatter Plot
-plot(cor_test(run, "max_ankle_force_mag", "imu_yaxis_g_avg_peak_rt"))
-```
-
-#### Bayesian Approach
-
-```{r}
-
-corr_bayes <- correlation(run_tibia_force_mag, bayesian = TRUE)
-corr_bayes
-```
-
-```{r}
-
-result <- correlationBF(run_tibia_force_mag$imu_yaxis_g_avg_peak_rt, run_tibia_force_mag$max_ankle_force_mag)
-describe_posterior(result)
+# Walking
+plot(cor_test(validity_walk_data, "max_grf_mag_z_bm", "max_knee_force_z"))
 ```

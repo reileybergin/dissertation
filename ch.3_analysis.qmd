@@ -1,4 +1,5 @@
 ---
+RStudio.Version()---
 title: "Ch.3"
 subtitle: "IMU Validity & Reliability"
 date: "`r format(Sys.time(), '%d %B, %Y')`" # today's date
@@ -30,8 +31,8 @@ library(brms)
 library(psych)
 library(lme4)
 library(easystats)
-library(tidybayes)
 library(reactable)
+library(openxlsx)
 ```
 
 ```{r}
@@ -100,6 +101,48 @@ vars_reliability <- reliability_data %>%
 
 ```{r}
 #| label: Functions
+
+# Returned filtered table in wide format
+
+create_dfs_dict <- function(data) {
+  
+  # Get unique combinations of variable and run_type
+  combinations <- unique(data[c("variable", "run_type")])
+  
+  # Initialize a list to store filtered data frames
+  filtered_data_list <- list()
+  
+  # Loop over each combination
+  for (i in 1:nrow(combinations)) {
+    variable_filter <- combinations$variable[i]
+    run_type_filter <- combinations$run_type[i]
+    
+    # Filter the data
+    filtered_data <- data %>%
+      filter(variable == variable_filter, run_type == run_type_filter) %>%
+      select(sub_id, time_pt, value)
+    
+    # Store the filtered data in the list with a unique key
+    key <- paste(variable_filter, run_type_filter, sep = "_")
+    filtered_data_list[[key]] <- filtered_data
+  }
+  
+  return(filtered_data_list)
+}
+
+# Calculate the range for a given normal distribution ----
+
+calculate_range <- function(mean, std_dev) {
+  # Z-scores for the lower and upper bounds (1% and 99%)
+  z_score_lower <- qnorm(0.01)
+  z_score_upper <- qnorm(0.99)
+  
+  # Calculate the range of values within the 98% interval
+  interval_lower <- mean + z_score_lower * std_dev
+  interval_upper <- mean + z_score_upper * std_dev
+  
+  return(c(interval_lower, interval_upper))
+}
 
 # Mean and SD -----
 
@@ -192,7 +235,7 @@ fit_lmm_model <- function(data, variable_filter, run_type_filter) {
   return(list(model = lmm_model, variable = variable_filter, run_type = run_type_filter))
 }
 
-# ICC3,1 from psych package ---
+# ICC2,1 from psych package ---
 
 calculate_freq_icc_psych <- function(data) {
   
@@ -232,9 +275,9 @@ calculate_freq_icc_psych <- function(data) {
     # Create a result row
     result_row <- data.frame(variable = variable_filter,
                              run_type = run_type_filter,
-                             icc_freq = second_icc_value,
-                             icc_freq_025 = lower_bound,
-                             icc_freq_975 = upper_bound)
+                             icc2 = second_icc_value,
+                             icc2_ci95_lower = lower_bound,
+                             icc2_ci95_upper = upper_bound)
     
     # Bind this row to the results data frame
     results <- rbind(results, result_row)
@@ -308,7 +351,7 @@ calculate_freq_icc_lmm <- function(models_and_metadata_list) {
     # Create a single result row
     result_row <- data.frame(variable = model_and_metadata$variable,
                              run_type = model_and_metadata$run_type,
-                             icc_lmm_easystats = easystats_icc$ICC_adjusted)
+                             icc_lmm = easystats_icc$ICC_adjusted)
 
     return(result_row)
   }
@@ -390,9 +433,10 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
       mutate(
         estimated_mean_time_1 = b_Intercept,
         estimated_mean_time_2 = b_Intercept + b_time_pt,
-        estimated_avg_mean = (estimated_mean_time_1 + estimated_mean_time_2) / 2,
+        estimated_grand_mean = (estimated_mean_time_1 + estimated_mean_time_2) / 2,
         sem = sigma,
-        cov = (sem / estimated_avg_mean) * 100
+        cov = (sem / estimated_grand_mean) * 100, 
+        sem_sqrt2 = sem * sqrt(2) 
       )
     
     # Calculate summary statistics for SEM and CoV
@@ -406,20 +450,37 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
     # Calculate 89% Credible Intervals
     ci_89_sem <- quantile(stats_distribution$sem, probs = c(0.055, 0.945))
     ci_89_cov <- quantile(stats_distribution$cov, probs = c(0.055, 0.945))
+    
+    # Calculate probabilities for CoV categories
+    prob_good_cov <- (mean(stats_distribution$cov < 10)) * 100
+    prob_questionable_cov <- mean((stats_distribution$cov >= 10 & stats_distribution$cov <= 15)) *100
+    prob_poor_cov <- (mean(stats_distribution$cov > 15)) * 100
+    
+    # Calculate quantiles for the new distribution
+    quantile_66_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.66)
+    quantile_90_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.90)
+    quantile_99_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.99)
+
       
     # Create a single result row
     result_row <- data.frame(variable = model_and_metadata$variable,
                              run_type = model_and_metadata$run_type,
                              sem_bayes_mean = mean_sem,
-                             cov_bayes_mean = mean_cov,
                              sem_bayes_ci95_lower = ci_95_sem[1],
                              sem_bayes_ci95_upper = ci_95_sem[2],
-                             cov_bayes_ci95_lower = ci_95_cov[1],
-                             cov_bayes_ci95_upper = ci_95_cov[2],
                              sem_bayes_ci89_lower = ci_89_sem[1],
                              sem_bayes_ci89_upper = ci_89_sem[2],
+                             quantile_66_sem_sqrt2 = quantile_66_sem_sqrt2,
+                             quantile_90_sem_sqrt2 = quantile_90_sem_sqrt2,
+                             quantile_99_sem_sqrt2 = quantile_99_sem_sqrt2,
+                             cov_bayes_mean = mean_cov,
+                             cov_bayes_ci95_lower = ci_95_cov[1],
+                             cov_bayes_ci95_upper = ci_95_cov[2],
                              cov_bayes_ci89_lower = ci_89_cov[1],
-                             cov_bayes_ci89_upper = ci_89_cov[2])
+                             cov_bayes_ci89_upper = ci_89_cov[2],
+                             prob_good_cov = prob_good_cov,
+                             prob_questionable_cov = prob_questionable_cov,
+                             prob_poor_cov = prob_poor_cov)
 
     return(result_row)
   }
@@ -429,6 +490,7 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
   results_df <- do.call(rbind, results)
 
   return(results_df)
+  
 }
 ```
 
@@ -452,35 +514,81 @@ reactable(
 )
 ```
 
+```{r}
+# dictonary for each variable/ run_type
+dfs <- create_dfs_dict(reliability_data)
+```
+
+```{r}
+#| label:  Plot raw data
+
+dfs[["rt_lt_avg_res_pk_accel_g_walk"]] %>%
+  ggplot(aes(y = sub_id, x = value, color = factor(time_pt))) +
+  geom_line(aes(group = sub_id)) +  
+  geom_point(size = 2) +            
+  theme(legend.position = "bottom") 
+```
+
 ### Bayesian Model
 
-**Model (using peak tibial acceleration as an example):**
+Model (using peak tibial acceleration as an example):
 
 $$
 \begin{align*}
 \text{PTA}_i & \sim \operatorname{Normal}(\mu_i, \sigma) \\
 \mu_i & = \alpha_{\text{subject}[i]} + \beta_{} \times \text{Time2}_i \\
-\alpha        & \sim \operatorname{Normal}(8, 3.0) \\
-\beta         & \sim \operatorname{Normal}(0.1, 0.05) \\
+\alpha        & \sim \operatorname{Normal}(10, 2.0) \\
+\beta         & \sim \operatorname{Normal}(0.0, 0.50) \\
 \sigma        & \sim \operatorname{HalfCauchy}(10) \\
 \sigma_\alpha & \sim \operatorname{HalfCauchy}(10) \\
 \end{align*}
 $$
 
+#### Prior Predictive Simulations
+
 ```{r}
-#| label: Bayes Models
+# 98% of values fall within
+mean <- 8
+std_dev <- 2
+range <- calculate_range(mean, std_dev)
+range
+```
+
+```{r}
+#| label: Priors
 
 # Running ---
+run_pta_mean <- c(8.0, 2.0)
+run_pta_chg <- c(0.0, 0.050) #UPDATE!
+
+# Walking ---
+walk_pta_mean <- c(5.0, 1.0)
+walk_pta_chg <- c(0.0, 0.50)
+```
+
+```{r}
+#| label: Prior Predective Simulations
+
+```
+
+#### Models
+
+```{r}
+#| label: Bayes Models - Running
+
+# Peak Accel ---
 
 # Tibia Peak Accel - Right 
-bm_run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
+bm_run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
 # Tibia Peak Accel - Left 
-bm_run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
+bm_run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
 # Tibia Peak Accel - Avg
-bm_run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", c(8.0, 3.0), c(0.10, 0.05))
-
+bm_run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
 # Low Back Peak Accel
-bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(3.6, 0.75), c(0.04, 0.01))
+bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(4.0, 1.0), c(0.0, 0.050))
+
+# RMS values---
+
 # Low Back RMS x
 bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
 # Low Back RMS Y
@@ -489,10 +597,100 @@ bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", 
 bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
 ```
 
+```{r}
+#| label: Bayes Models - Walking
+
+# Walking ---
+
+```
+
+#### Model Checking
+
+1.  **R-hat ≈ 1.0**: Indicates that the chains have converged to a common distribution. The closer R-hat is to 1.0, the better.
+
+2.  **R-hat ≤ 1.01**: Usually considered acceptable. Values in this range suggest that convergence is likely adequate, and the MCMC samples can be trusted for inference.
+
+3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
+
+```{r}
+# packages
+
+library(tidyr)
+library(ggdist)
+library(tidybayes)
+library(cowplot)
+library(ggrepel)
+library(RColorBrewer)
+library(posterior)
+library(distributional)
+
+theme_set(theme_tidybayes() + panel_border())
+```
+
+```{r}
+# Shiny app from rstan for all the things
+launch_shinystan(bm_run_avg_pta$model)
+```
+
+```{r}
+# Model summaeries
+summary(bm_run_avg_pta$model)
+```
+
+```{r}
+# View intercepts for each subject
+coef(bm_run_avg_pta$model)
+```
+
+```{r}
+# Intercepts of each subject
+bm_run_avg_pta$model %>%
+  spread_draws(b_Intercept, r_sub_id[sub_id,]) %>%
+  mutate(sub_id_mean = b_Intercept + r_sub_id) %>%
+  ggplot(aes(y = sub_id, x = sub_id_mean, fill = after_stat(abs(x) > 12 | abs(x) < 8))) +
+  stat_halfeye() +
+  geom_vline(xintercept = c(8.0, 12.0), linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue"))
+```
+
+```{r}
+
+# Posterior Predictions for each subject
+dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+  data_grid(sub_id, time_pt) %>%
+  add_predicted_draws(bm_run_avg_pta$model) %>%
+  ggplot(aes(x = .prediction, y = sub_id)) +
+  stat_slab()
+```
+
+```{r}
+
+# Posterior Predictions, Quantile dotplots
+dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+  data_grid(sub_id, time_pt) %>%
+  add_epred_draws(bm_run_avg_pta$mode) %>%
+  ggplot(aes(x = .epred, y = sub_id)) +
+  stat_dotsinterval(quantiles = 100)
+```
+
+```{r}
+
+# Posterior predictions, Kruschke-style
+dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+  data_grid(sub_id, time_pt) %>%
+  add_epred_draws(bm_run_avg_pta$model, dpar = c("mu", "sigma")) %>%
+  sample_draws(30) %>%
+  ggplot(aes(y = sub_id)) +
+  stat_slab(aes(xdist = dist_normal(mu, sigma)), 
+    slab_color = "gray65", alpha = 1/10, fill = NA
+  ) +
+  geom_point(aes(x = value), data = dfs[["rt_lt_avg_res_pk_accel_g_run"]], shape = 21, fill = "#9ECAE1", size = 2)
+```
+
 ### Regular Linear Multilevel Model
 
 ```{r}
-#| label: LMM Models
+#| label: LMM Models - Running
 
 # Running ---
 
@@ -587,6 +785,26 @@ bayes_sem_tbl <- calculate_bayes_sem(list(
   bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z))
 ```
 
+```{r}
+#| label: Export Reliability Results
+
+# Full Table
+results_reliability <- stats_tbl %>%
+  inner_join(freq_icc_pysch_tbl, by = c("variable", "run_type")) %>%
+  inner_join(freq_icc_lmm_tbl, by = c("variable", "run_type")) %>%
+  inner_join(bayes_icc_tbl, by = c("variable", "run_type")) %>%
+  inner_join(freq_sem_tbl, by = c("variable", "run_type")) %>%
+  inner_join(bayes_sem_tbl, by = c("variable", "run_type")) %>%
+  pivot_longer(
+    cols = -c(variable, run_type), 
+    names_to = "statistic",        
+    values_to = "value") %>%
+  mutate(value = round(value, 3))
+
+# Write to an Excel file
+write.xlsx(results_reliability, file = "ch.3_results/results_reliability.xlsx")
+```
+
 ## Validity
 
 ```{r}
@@ -595,8 +813,7 @@ bayes_sem_tbl <- calculate_bayes_sem(list(
 library(tidyverse)
 library(easystats)
 library(readr)
-library(BayesFactor)
-library(see)
+library(openxlsx)
 ```
 
 ```{r}
@@ -646,4 +863,12 @@ plot(cor_test(validity_run_data, "max_grf_mag_z_bm", "max_knee_force_z"))
 
 # Walking
 plot(cor_test(validity_walk_data, "max_grf_mag_z_bm", "max_knee_force_z"))
+```
+
+```{r}
+#| label: Export Validity Results
+
+# Write the matrix run_correlations_tbl to a CSV file
+write.csv(run_correlations_tbl, "ch.3_results/validity_run_corr_matrix.csv", row.names = TRUE)
+write.csv(walk_correlations_tbl, "ch.3_results/validity_walk_corr_matrix.csv", row.names = TRUE)
 ```

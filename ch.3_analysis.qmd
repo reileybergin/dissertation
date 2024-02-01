@@ -1,5 +1,4 @@
 ---
-RStudio.Version()---
 title: "Ch.3"
 subtitle: "IMU Validity & Reliability"
 date: "`r format(Sys.time(), '%d %B, %Y')`" # today's date
@@ -33,6 +32,16 @@ library(lme4)
 library(easystats)
 library(reactable)
 library(openxlsx)
+library(tidyr)
+library(ggdist)
+library(tidybayes)
+library(cowplot)
+library(ggrepel)
+library(RColorBrewer)
+library(posterior)
+library(distributional)
+
+theme_set(theme_tidybayes() + panel_border())
 ```
 
 ```{r}
@@ -522,7 +531,7 @@ dfs <- create_dfs_dict(reliability_data)
 ```{r}
 #| label:  Plot raw data
 
-dfs[["rt_lt_avg_res_pk_accel_g_walk"]] %>%
+dfs[["lb_res_pk_accel_g_run"]] %>%
   ggplot(aes(y = sub_id, x = value, color = factor(time_pt))) +
   geom_line(aes(group = sub_id)) +  
   geom_point(size = 2) +            
@@ -559,7 +568,7 @@ range
 
 # Running ---
 run_pta_mean <- c(8.0, 2.0)
-run_pta_chg <- c(0.0, 0.050) #UPDATE!
+run_pta_chg <- c(0.0, 0.50) 
 
 # Walking ---
 walk_pta_mean <- c(5.0, 1.0)
@@ -569,6 +578,28 @@ walk_pta_chg <- c(0.0, 0.50)
 ```{r}
 #| label: Prior Predective Simulations
 
+num_subjects <- 1000
+intercept_mean <- 5.0
+intercept_sd <- 1.0
+beta_mean <- 0.0
+beta_sd <- 0.50
+
+intercept_subject <- rnorm(num_subjects, intercept_mean, intercept_sd)
+beta_subject <- rnorm(num_subjects, beta_mean, beta_sd)
+
+# Create a data frame for the random intercepts and betas
+sim_data <- tibble(
+  subject = 1:num_subjects,
+  intercept = intercept_subject,
+  beta = beta_subject ) %>% 
+  mutate(time2_value = intercept + beta)
+
+# Plot Time 2 values
+ggplot(sim_data, aes(x = time2_value)) +
+  geom_dotplot(binwidth = 0.2, dotsize = 0.2, fill = "#1E90FF") +
+  scale_y_continuous(NULL, breaks = NULL) +
+  scale_x_continuous(name = "Mean Time 2", limits = c(0, NA)) +
+  scale_color_brewer() 
 ```
 
 #### Models
@@ -590,11 +621,11 @@ bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(
 # RMS values---
 
 # Low Back RMS x
-bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
+bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", c(0.50, 0.10), c(0.0, 0.050))
 # Low Back RMS Y
-bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", c(1.2, 0.12), c(0.0, 0.05))
+bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", c(1.2, 0.12), c(0.0, 0.050))
 # Low Back RMS z
-bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", c(0.50, 0.10), c(0.0, 0.05))
+bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", c(0.50, 0.10), c(0.0, 0.050))
 ```
 
 ```{r}
@@ -611,21 +642,6 @@ bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", 
 2.  **R-hat ≤ 1.01**: Usually considered acceptable. Values in this range suggest that convergence is likely adequate, and the MCMC samples can be trusted for inference.
 
 3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
-
-```{r}
-# packages
-
-library(tidyr)
-library(ggdist)
-library(tidybayes)
-library(cowplot)
-library(ggrepel)
-library(RColorBrewer)
-library(posterior)
-library(distributional)
-
-theme_set(theme_tidybayes() + panel_border())
-```
 
 ```{r}
 # Shiny app from rstan for all the things

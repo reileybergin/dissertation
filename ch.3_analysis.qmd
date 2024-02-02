@@ -22,7 +22,7 @@ editor: visual
 ## Reliability
 
 ```{r}
-#| label: Packages
+#| label: Packages & Themes
 
 library(tidyverse)
 library(readr)
@@ -33,6 +33,7 @@ library(easystats)
 library(reactable)
 library(openxlsx)
 library(tidyr)
+library(modelr)
 library(ggdist)
 library(tidybayes)
 library(cowplot)
@@ -567,8 +568,14 @@ range
 #| label: Priors
 
 # Running ---
+
+# Peak Tibal Acceleration (PTA) of Resultant
 run_pta_mean <- c(8.0, 2.0)
 run_pta_chg <- c(0.0, 0.50) 
+
+# Low Back Peak Acceleration (LB-PA) of Resultant
+run_lb_pa_mean <- c(3.77, 0.81)
+run_lb_pa_chg <- c(0.04, 0.50) 
 
 # Walking ---
 walk_pta_mean <- c(5.0, 1.0)
@@ -578,11 +585,15 @@ walk_pta_chg <- c(0.0, 0.50)
 ```{r}
 #| label: Prior Predective Simulations
 
+intercept_priors <- walk_pta_mean
+beta_priors <- walk_pta_chg
+
 num_subjects <- 1000
-intercept_mean <- 5.0
-intercept_sd <- 1.0
-beta_mean <- 0.0
-beta_sd <- 0.50
+
+intercept_mean <- run_lb_pa_mean[1]
+intercept_sd <- run_lb_pa_mean[2]
+beta_mean <- run_lb_pa_chg[1]
+beta_sd <- run_lb_pa_chg[2]
 
 intercept_subject <- rnorm(num_subjects, intercept_mean, intercept_sd)
 beta_subject <- rnorm(num_subjects, beta_mean, beta_sd)
@@ -598,7 +609,7 @@ sim_data <- tibble(
 ggplot(sim_data, aes(x = time2_value)) +
   geom_dotplot(binwidth = 0.2, dotsize = 0.2, fill = "#1E90FF") +
   scale_y_continuous(NULL, breaks = NULL) +
-  scale_x_continuous(name = "Mean Time 2", limits = c(0, NA)) +
+  scale_x_continuous(name = "Time 2 Mean", limits = c(0, NA)) +
   scale_color_brewer() 
 ```
 
@@ -607,16 +618,18 @@ ggplot(sim_data, aes(x = time2_value)) +
 ```{r}
 #| label: Bayes Models - Running
 
-# Peak Accel ---
-
-# Tibia Peak Accel - Right 
+# Tibia Peak Accel ---
+# Right 
 bm_run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-# Tibia Peak Accel - Left 
+# Left 
 bm_run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-# Tibia Peak Accel - Avg
+# Avg
 bm_run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-# Low Back Peak Accel
-bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", c(4.0, 1.0), c(0.0, 0.050))
+
+
+# Low Back Peak Accel ---
+bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", run_lb_pa_mean, run_lb_pa_chg)
+
 
 # RMS values---
 
@@ -644,37 +657,46 @@ bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", 
 3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
 
 ```{r}
+model<- bm_run_lb_pa$model
+table <- dfs[["rt_lt_avg_res_pk_accel_g_run"]]
+```
+
+```{r}
 # Shiny app from rstan for all the things
-launch_shinystan(bm_run_avg_pta$model)
+launch_shinystan(model)
 ```
 
 ```{r}
 # Model summaeries
-summary(bm_run_avg_pta$model)
+summary(model)
 ```
 
 ```{r}
 # View intercepts for each subject
-coef(bm_run_avg_pta$model)
+coef(model)
 ```
 
 ```{r}
 # Intercepts of each subject
-bm_run_avg_pta$model %>%
+
+low <- 2
+high <- 8 
+
+model %>%
   spread_draws(b_Intercept, r_sub_id[sub_id,]) %>%
   mutate(sub_id_mean = b_Intercept + r_sub_id) %>%
-  ggplot(aes(y = sub_id, x = sub_id_mean, fill = after_stat(abs(x) > 12 | abs(x) < 8))) +
+  ggplot(aes(y = sub_id, x = sub_id_mean, fill = after_stat(abs(x) > high | abs(x) < low))) +
   stat_halfeye() +
-  geom_vline(xintercept = c(8.0, 12.0), linetype = "dashed") +
+  geom_vline(xintercept = c(low, high), linetype = "dashed") +
   scale_fill_manual(values = c("gray80", "skyblue"))
 ```
 
 ```{r}
 
 # Posterior Predictions for each subject
-dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+table %>%
   data_grid(sub_id, time_pt) %>%
-  add_predicted_draws(bm_run_avg_pta$model) %>%
+  add_predicted_draws(model) %>%
   ggplot(aes(x = .prediction, y = sub_id)) +
   stat_slab()
 ```
@@ -682,25 +704,27 @@ dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
 ```{r}
 
 # Posterior Predictions, Quantile dotplots
-dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+table%>%
   data_grid(sub_id, time_pt) %>%
-  add_epred_draws(bm_run_avg_pta$mode) %>%
-  ggplot(aes(x = .epred, y = sub_id)) +
-  stat_dotsinterval(quantiles = 100)
+  add_epred_draws(model) %>%
+  ggplot(aes(x = .epred, y = sub_id, fill = after_stat(x < 0))) +
+  stat_dotsinterval(quantiles = 100) +
+  geom_vline(xintercept = 0, linetype = "dashed") +
+  scale_fill_manual(values = c("gray80", "skyblue"))
 ```
 
 ```{r}
 
 # Posterior predictions, Kruschke-style
-dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+table%>%
   data_grid(sub_id, time_pt) %>%
-  add_epred_draws(bm_run_avg_pta$model, dpar = c("mu", "sigma")) %>%
+  add_epred_draws(model, dpar = c("mu", "sigma")) %>%
   sample_draws(30) %>%
   ggplot(aes(y = sub_id)) +
   stat_slab(aes(xdist = dist_normal(mu, sigma)), 
     slab_color = "gray65", alpha = 1/10, fill = NA
   ) +
-  geom_point(aes(x = value), data = dfs[["rt_lt_avg_res_pk_accel_g_run"]], shape = 21, fill = "#9ECAE1", size = 2)
+  geom_point(aes(x = value), data = dfs[["lb_res_pk_accel_g_run"]], shape = 21, fill = "#9ECAE1", size = 2)
 ```
 
 ### Regular Linear Multilevel Model

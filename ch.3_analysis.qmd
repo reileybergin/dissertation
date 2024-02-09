@@ -466,6 +466,8 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
     # Calculate summary statistics for SEM and CoV
     mean_sem <- mean(stats_distribution$sem)
     mean_cov <- mean(stats_distribution$cov)
+    median_sem <- median(stats_distribution$sem)
+    median_cov <- median(stats_distribution$cov)
 
     # Calculate 95% Credible Intervals
     ci_95_sem <- quantile(stats_distribution$sem, probs = c(0.025, 0.975))
@@ -490,6 +492,7 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
     # Create a single result row
     result_row <- data.frame(variable = model_and_metadata$variable,
                              run_type = model_and_metadata$run_type,
+                             sem_bayes_median = median_sem, 
                              sem_bayes_mean = mean_sem,
                              sem_bayes_ci95_lower = ci_95_sem[1],
                              sem_bayes_ci95_upper = ci_95_sem[2],
@@ -499,6 +502,7 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
                              quantile_90_sem_sqrt2 = quantile_90_sem_sqrt2,
                              quantile_95_sem_sqrt2 = quantile_95_sem_sqrt2,
                              quantile_99_sem_sqrt2 = quantile_99_sem_sqrt2,
+                             cov_bayes_median = median_cov,
                              cov_bayes_mean = mean_cov,
                              cov_bayes_ci95_lower = ci_95_cov[1],
                              cov_bayes_ci95_upper = ci_95_cov[2],
@@ -528,19 +532,6 @@ stats_tbl <- calculate_summary_stats(reliability_data)
 ```
 
 ```{r}
-#| label: Mean & SD Table
-
-reactable(
-  stats_tbl,
-  striped = TRUE,
-  highlight = TRUE,
-  bordered = TRUE, 
-  filterable = TRUE, 
-  pagination = FALSE
-)
-```
-
-```{r}
 # dictonary for each variable/ run_type
 dfs <- create_dfs_dict(reliability_data)
 ```
@@ -548,7 +539,7 @@ dfs <- create_dfs_dict(reliability_data)
 ```{r}
 #| label:  Plot raw data
 
-dfs[["rt_lt_avg_res_pk_accel_g_walk"]] %>%
+dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
   ggplot(aes(y = sub_id, x = value, color = factor(time_pt))) +
   geom_line(aes(group = sub_id)) +  
   geom_point(size = 2) +            
@@ -568,14 +559,14 @@ $$
 \sigma        & \sim \operatorname{HalfCauchy}(10) \\
 \sigma_\alpha & \sim \operatorname{HalfCauchy}(10) \\
 \end{align*}
-$$
+$$ {#eq-bayes-model}
 
 #### Prior Predictive Simulations
 
 ```{r}
 # 98% of values fall within
-mean <- 0
-std_dev <- 0.5
+mean <- 2.0
+std_dev <- 0.37
 range <- calculate_range(mean, std_dev)
 range
 ```
@@ -585,32 +576,54 @@ range
 
 # Running ---
 
-# Peak Tibal Acceleration (PTA) of Resultant
-run_pta_mean <- c(9.1, 3.13)
-run_pta_chg <- c(0.13, 0.50) 
+# Peak Tibal Acceleration (PTA) of Resultant (Sheerin 2018)
+run_pta_mean <- c(9.800, 3.250)
+run_pta_chg <- c(0.000, 0.500) 
 
-# Low Back Peak Acceleration (LB-PA) of Resultant
-run_lb_pa_mean <- c(3.77, 0.81)
-run_lb_pa_chg <- c(0.04, 0.50) 
+# Low Back Peak Acceleration (LB-PA) of Resultant (Burke 2022)
+run_lb_pa_mean <- c(3.80, 0.810)
+run_lb_pa_chg <- c(0.000, 0.500) 
 
-# Low Back RMS X
+# Low Back RMS X (ML) (Schütte 2015)
+run_lb_x_rms_mean <- c(0.520, 0.150)
+run_lb_x_rms_chg <- c(0.000, 0.050)
 
-# Low Back RMS Y
+# Low Back RMS Y (VT) (Schütte 2015)
+run_lb_y_rms_mean <- c(1.390, 0.220)
+run_lb_y_rms_chg <- c(0.000, 0.050)
 
-# Low Back RMS Z
+# Low Back RMS Z (AP) (Schütte 2015)
+run_lb_z_rms_mean <- c(0.510, 0.180)
+run_lb_z_rms_chg <- c(0.000, 0.050)
 
 # Walking ---
-walk_pta_mean <- c(4.0, 1.0)
-walk_pta_chg <- c(0.0, 0.50)
 
+# Peak Tibal Acceleration (PTA) of Resultant (Tirosh 2019)
+walk_pta_mean <- c(2.010, 0.370)
+walk_pta_chg <- c(0.000, 0.500)
 
+# Low Back Peak Acceleration (LB-PA) of Resultant (Morrow 2014)
+walk_lb_pa_mean <- c(1.809, 0.411)
+walk_lb_pa_chg <- c(0.000, 0.500) 
+
+# Low Back RMS X (ML) (Henriksen 2004)
+walk_lb_x_rms_mean <- c(0.138, 0.025)
+walk_lb_x_rms_chg <- c(0.000, 0.050)
+
+# Low Back RMS Y (VT) (Henriksen 2004)
+walk_lb_y_rms_mean <- c(0.252, 0.024)
+walk_lb_y_rms_chg <- c(0.000, 0.050)
+
+# Low Back RMS Z (AP) (Henriksen 2004)
+walk_lb_z_rms_mean <- c(0.178, 0.020)
+walk_lb_z_rms_chg <- c(0.000, 0.050)
 ```
 
 ```{r}
 #| label: Prior Predective Simulations
 
-intercept_priors <- walk_pta_mean
-beta_priors <- walk_pta_chg
+intercept_priors <- walk_lb_pa_mean
+beta_priors <- walk_lb_pa_chg
 
 num_subjects <- 1000
 
@@ -631,7 +644,7 @@ sim_data <- tibble(
 
 # Plot Time 2 values
 ggplot(sim_data, aes(x = time2_value)) +
-  geom_dotplot(binwidth = 0.2, dotsize = 0.2, fill = "#1E90FF") +
+  geom_dotplot(binwidth = 0.10, dotsize = 0.25, fill = "#1E90FF") +
   scale_y_continuous(NULL, breaks = NULL) +
   scale_x_continuous(name = "Time 2 Mean", limits = c(0, NA)) +
   scale_color_brewer() 
@@ -643,26 +656,17 @@ ggplot(sim_data, aes(x = time2_value)) +
 #| label: Bayes Models - Running
 
 # Tibia Peak Accel ---
-# Right 
 bm_run_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-# Left 
 bm_run_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-# Avg
 bm_run_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run", run_pta_mean, run_pta_chg)
-
 
 # Low Back Peak Accel ---
 bm_run_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "run", run_lb_pa_mean, run_lb_pa_chg)
 
-
-# RMS values---
-
-# Low Back RMS x
-bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", c(0.50, 0.10), c(0.0, 0.050))
-# Low Back RMS Y
-bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", c(1.2, 0.12), c(0.0, 0.050))
-# Low Back RMS z
-bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", c(0.50, 0.10), c(0.0, 0.050))
+# Low Back RMS values ---
+bm_run_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "run", run_lb_x_rms_mean, run_lb_x_rms_chg)
+bm_run_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "run", run_lb_y_rms_mean, run_lb_y_rms_chg)
+bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", run_lb_z_rms_mean, run_lb_z_rms_chg)
 ```
 
 ```{r}
@@ -671,12 +675,18 @@ bm_run_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "run", 
 # Walking ---
 
 # Tibia Peak Accel ---
-# Right 
 bm_walk_rt_pta <- fit_bayes_model(reliability_data, "rt_res_pk_accel_g", "walk", walk_pta_mean, walk_pta_chg)
-# Left 
 bm_walk_lt_pta <- fit_bayes_model(reliability_data, "lt_res_pk_accel_g", "walk", walk_pta_mean, walk_pta_chg)
-# Avg
 bm_walk_avg_pta <- fit_bayes_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "walk", walk_pta_mean, walk_pta_chg)
+
+# Low Back Peak Accel ---
+bm_walk_lb_pa <- fit_bayes_model(reliability_data, "lb_res_pk_accel_g", "walk", walk_lb_pa_mean, walk_lb_pa_chg)
+
+# Low Back RMS values ---
+bm_walk_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "walk", walk_lb_x_rms_mean, walk_lb_x_rms_chg)
+bm_walk_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "walk", walk_lb_y_rms_mean, walk_lb_y_rms_chg)
+bm_walk_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "walk", walk_lb_z_rms_mean, walk_lb_z_rms_chg)
+```
 ```
 
 #### Model Checking

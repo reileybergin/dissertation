@@ -687,7 +687,6 @@ bm_walk_lb_rms_x <- fit_bayes_model(reliability_data, "lb_accel_x_rms_g", "walk"
 bm_walk_lb_rms_y <- fit_bayes_model(reliability_data, "lb_accel_y_rms_g", "walk", walk_lb_y_rms_mean, walk_lb_y_rms_chg)
 bm_walk_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "walk", walk_lb_z_rms_mean, walk_lb_z_rms_chg)
 ```
-```
 
 #### Model Checking
 

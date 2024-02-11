@@ -223,21 +223,21 @@ fit_bayes_model <- function(data, variable_filter, run_type_filter, intercept_pr
     refresh = 0  # Prevent printing of progress
   )
   
-  # Priors Only Model for prior predictive checks
-  bayes_priors_only_model <- brm(
-    formula = value ~ 1 + time_pt + (1 | sub_id),
-    data = filtered_data,
-    family = gaussian(),
-    prior = prs,
-    sample_prior = "only", # priors only
-    stanvars = stanvars,
-    warmup = 2000, iter = 10000,
-    control = list(adapt_delta = 0.98), 
-    refresh = 0  # Prevent printing of progress
-  )
+  # Priors Only Model 
+  #bayes_priors_only_model <- brm(
+    #formula = value ~ 1 + time_pt + (1 | sub_id),
+    #data = filtered_data,
+    #family = gaussian(),
+    #prior = prs,
+    #sample_prior = "only", # priors only
+    #stanvars = stanvars,
+    #warmup = 2000, iter = 10000,
+    #control = list(adapt_delta = 0.98), 
+    #refresh = 0  # Prevent printing of progress
+  #)
   
   # Create a list to return the model along with inputs for variable nd run_type
-  return(list(model = bayes_model, priors_model =  bayes_priors_only_model, 
+  return(list(model = bayes_model, 
               variable = variable_filter, run_type = run_type_filter))
 }
 
@@ -386,7 +386,10 @@ calculate_freq_icc_lmm <- function(models_and_metadata_list) {
   return(results)
 }
 
-calculate_sem_anova <- function(data, Zcrit = 1.96) {
+calculate_sem_anova <- function(data) {
+  
+  # Critical threshold
+  Zcrit = 1.96
   
   # Get unique combinations of variable and run_type
   combinations <- unique(data[c("variable", "run_type")])
@@ -429,7 +432,7 @@ calculate_sem_anova <- function(data, Zcrit = 1.96) {
     result_row <- data.frame(variable = variable_filter,
                              run_type = run_type_filter,
                              sem = sem_anova,
-                             md = md_anova,
+                             md_95 = md_anova,
                              cov = cov_anova)
     
     # Append the result row to the results data frame
@@ -460,7 +463,7 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
         estimated_grand_mean = (estimated_mean_time_1 + estimated_mean_time_2) / 2,
         sem = sigma,
         cov = (sem / estimated_grand_mean) * 100, 
-        sem_sqrt2 = sem * sqrt(2) 
+        sem_sqrt2 = sem * sqrt(2) # minimal difference formula
       )
     
     # Calculate summary statistics for SEM and CoV
@@ -478,17 +481,16 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
     ci_89_cov <- quantile(stats_distribution$cov, probs = c(0.055, 0.945))
     
     # Calculate probabilities for CoV categories
-    prob_less_10_cov <- (mean(stats_distribution$cov < 10)) * 100
-    prob_10_to_15_cov <- mean((stats_distribution$cov >= 10 & stats_distribution$cov <= 15)) *100
+    prob_less_or_equal_10_cov <- (mean(stats_distribution$cov <= 10)) * 100
+    prob_greater_10_less_or_equal_15_cov <- mean((stats_distribution$cov > 10 & stats_distribution$cov <= 15)) *100
     prob_greater_15_cov <- (mean(stats_distribution$cov > 15)) * 100
     
-    # Calculate quantiles for the new distribution
+    # Calculate MD (minimimal difference) above specified threshold
     quantile_66_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.66)
     quantile_90_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.90)
     quantile_95_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.95)
     quantile_99_sem_sqrt2 <- quantile(stats_distribution$sem_sqrt2, probs = 0.99)
 
-      
     # Create a single result row
     result_row <- data.frame(variable = model_and_metadata$variable,
                              run_type = model_and_metadata$run_type,
@@ -498,19 +500,19 @@ calculate_bayes_sem <- function(models_and_metadata_list) {
                              sem_bayes_ci95_upper = ci_95_sem[2],
                              sem_bayes_ci89_lower = ci_89_sem[1],
                              sem_bayes_ci89_upper = ci_89_sem[2],
-                             quantile_66_sem_sqrt2 = quantile_66_sem_sqrt2,
-                             quantile_90_sem_sqrt2 = quantile_90_sem_sqrt2,
-                             quantile_95_sem_sqrt2 = quantile_95_sem_sqrt2,
-                             quantile_99_sem_sqrt2 = quantile_99_sem_sqrt2,
+                             md_bayes_66 = quantile_66_sem_sqrt2,
+                             md_bayes_90 = quantile_90_sem_sqrt2,
+                             md_bayes_95 = quantile_95_sem_sqrt2,
+                             md_bayes_99 = quantile_99_sem_sqrt2,
                              cov_bayes_median = median_cov,
                              cov_bayes_mean = mean_cov,
                              cov_bayes_ci95_lower = ci_95_cov[1],
                              cov_bayes_ci95_upper = ci_95_cov[2],
                              cov_bayes_ci89_lower = ci_89_cov[1],
                              cov_bayes_ci89_upper = ci_89_cov[2],
-                             prob_less_10_cov = prob_less_10_cov,
-                             prob_10_to_15_cov = prob_10_to_15_cov,
-                             prob_greater_15_cov = prob_greater_15_cov)
+                             cov_bayes_pr_ls_or_eq_10 = prob_less_or_equal_10_cov,
+                             cov_bayes_pr_gr_10_ls_or_eq_15 = prob_greater_10_less_or_equal_15_cov,
+                             cov_bayes_pr_gr_15 = prob_greater_15_cov)
 
     return(result_row)
   }
@@ -539,7 +541,7 @@ dfs <- create_dfs_dict(reliability_data)
 ```{r}
 #| label:  Plot raw data
 
-dfs[["rt_lt_avg_res_pk_accel_g_run"]] %>%
+dfs[["lb_res_pk_accel_g_run"]] %>%
   ggplot(aes(y = sub_id, x = value, color = factor(time_pt))) +
   geom_line(aes(group = sub_id)) +  
   geom_point(size = 2) +            
@@ -565,8 +567,8 @@ $$ {#eq-bayes-model}
 
 ```{r}
 # 98% of values fall within
-mean <- 2.0
-std_dev <- 0.37
+mean <- 0.000
+std_dev <- 0.500
 range <- calculate_range(mean, std_dev)
 range
 ```
@@ -581,20 +583,20 @@ run_pta_mean <- c(9.800, 3.250)
 run_pta_chg <- c(0.000, 0.500) 
 
 # Low Back Peak Acceleration (LB-PA) of Resultant (Burke 2022)
-run_lb_pa_mean <- c(3.80, 0.810)
+run_lb_pa_mean <- c(3.770, 0.810)
 run_lb_pa_chg <- c(0.000, 0.500) 
 
 # Low Back RMS X (ML) (Schütte 2015)
 run_lb_x_rms_mean <- c(0.520, 0.150)
-run_lb_x_rms_chg <- c(0.000, 0.050)
+run_lb_x_rms_chg <- c(0.000, 0.025)
 
 # Low Back RMS Y (VT) (Schütte 2015)
 run_lb_y_rms_mean <- c(1.390, 0.220)
-run_lb_y_rms_chg <- c(0.000, 0.050)
+run_lb_y_rms_chg <- c(0.000, 0.025)
 
 # Low Back RMS Z (AP) (Schütte 2015)
 run_lb_z_rms_mean <- c(0.510, 0.180)
-run_lb_z_rms_chg <- c(0.000, 0.050)
+run_lb_z_rms_chg <- c(0.000, 0.025)
 
 # Walking ---
 
@@ -608,22 +610,22 @@ walk_lb_pa_chg <- c(0.000, 0.500)
 
 # Low Back RMS X (ML) (Henriksen 2004)
 walk_lb_x_rms_mean <- c(0.138, 0.025)
-walk_lb_x_rms_chg <- c(0.000, 0.050)
+walk_lb_x_rms_chg <- c(0.000, 0.013)
 
 # Low Back RMS Y (VT) (Henriksen 2004)
 walk_lb_y_rms_mean <- c(0.252, 0.024)
-walk_lb_y_rms_chg <- c(0.000, 0.050)
+walk_lb_y_rms_chg <- c(0.000, 0.013)
 
 # Low Back RMS Z (AP) (Henriksen 2004)
 walk_lb_z_rms_mean <- c(0.178, 0.020)
-walk_lb_z_rms_chg <- c(0.000, 0.050)
+walk_lb_z_rms_chg <- c(0.000, 0.009)
 ```
 
 ```{r}
 #| label: Prior Predective Simulations
 
-intercept_priors <- walk_lb_pa_mean
-beta_priors <- walk_lb_pa_chg
+intercept_priors <- walk_lb_z_rms_mean 
+beta_priors <- walk_lb_z_rms_chg
 
 num_subjects <- 1000
 
@@ -644,7 +646,7 @@ sim_data <- tibble(
 
 # Plot Time 2 values
 ggplot(sim_data, aes(x = time2_value)) +
-  geom_dotplot(binwidth = 0.10, dotsize = 0.25, fill = "#1E90FF") +
+  geom_dotplot(binwidth = 0.02, dotsize = 0.09, fill = "#1E90FF") +
   scale_y_continuous(NULL, breaks = NULL) +
   scale_x_continuous(name = "Time 2 Mean", limits = c(0, NA)) +
   scale_color_brewer() 
@@ -697,9 +699,8 @@ bm_walk_lb_rms_z <- fit_bayes_model(reliability_data, "lb_accel_z_rms_g", "walk"
 3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
 
 ```{r}
-model<-bm_walk_avg_pta$model
-priors_model <- bm_walk_avg_pta$priors_model
-table <- dfs[["rt_lt_avg_res_pk_accel_g_walk"]]
+model<-bm_walk_lb_rms_z$model
+table <- dfs[["lb_accel_z_rms_g_walk"]]
 ```
 
 ```{r}
@@ -784,21 +785,27 @@ table%>%
 
 # Running ---
 
-# Tibia Peak Accel - Right 
 lmm_run_rt_pta <- fit_lmm_model(reliability_data, "rt_res_pk_accel_g", "run")
-# Tibia Peak Accel - Left 
 lmm_run_lt_pta <- fit_lmm_model(reliability_data, "lt_res_pk_accel_g", "run")
-# Tibia Peak Accel - Avg
 lmm_run_avg_pta <- fit_lmm_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "run")
-
-# Low Back Peak Accel
 lmm_run_lb_pa <- fit_lmm_model(reliability_data, "lb_res_pk_accel_g", "run")
-# Low Back RMS x
 lmm_run_lb_rms_x <- fit_lmm_model(reliability_data, "lb_accel_x_rms_g", "run")
-# Low Back RMS Y
 lmm_run_lb_rms_y <- fit_lmm_model(reliability_data, "lb_accel_y_rms_g", "run")
-# Low Back RMS z
 lmm_run_lb_rms_z <- fit_lmm_model(reliability_data, "lb_accel_z_rms_g", "run")
+```
+
+```{r}
+#| label: LMM Models - Walking
+
+# Walking ---
+
+lmm_walk_rt_pta <- fit_lmm_model(reliability_data, "rt_res_pk_accel_g", "walk")
+lmm_walk_lt_pta <- fit_lmm_model(reliability_data, "lt_res_pk_accel_g", "walk")
+lmm_walk_avg_pta <- fit_lmm_model(reliability_data, "rt_lt_avg_res_pk_accel_g", "walk")
+lmm_walk_lb_pa <- fit_lmm_model(reliability_data, "lb_res_pk_accel_g", "walk")
+lmm_walk_lb_rms_x <- fit_lmm_model(reliability_data, "lb_accel_x_rms_g", "walk")
+lmm_walk_lb_rms_y <- fit_lmm_model(reliability_data, "lb_accel_y_rms_g", "walk")
+lmm_walk_lb_rms_z <- fit_lmm_model(reliability_data, "lb_accel_z_rms_g", "walk")
 ```
 
 ### Intraclass Correlation Coefficient (ICC)
@@ -816,7 +823,9 @@ freq_icc_pysch_tbl <- calculate_freq_icc_psych(reliability_data)
 # Using LMM and easystats icc 
 freq_icc_lmm_tbl <- calculate_freq_icc_lmm(list(
   lmm_run_avg_pta, lmm_run_rt_pta, lmm_run_lt_pta, 
-  lmm_run_lb_pa, lmm_run_lb_rms_x, lmm_run_lb_rms_y, lmm_run_lb_rms_z))
+  lmm_run_lb_pa, lmm_run_lb_rms_x, lmm_run_lb_rms_y, lmm_run_lb_rms_z, 
+  lmm_walk_avg_pta, lmm_walk_rt_pta, lmm_walk_lt_pta, 
+  lmm_walk_lb_pa, lmm_walk_lb_rms_x, lmm_walk_lb_rms_y, lmm_walk_lb_rms_z))
 ```
 
 #### Bayesian Approach
@@ -825,7 +834,9 @@ freq_icc_lmm_tbl <- calculate_freq_icc_lmm(list(
 # Calculates posterior distribution and samples ICC values
 bayes_icc_tbl <- calculate_bayes_icc(list(
   bm_run_avg_pta, bm_run_rt_pta, bm_run_lt_pta, 
-  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z))
+  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z,
+  bm_walk_avg_pta, bm_walk_rt_pta, bm_walk_lt_pta, 
+  bm_walk_lb_pa, bm_walk_lb_rms_x, bm_walk_lb_rms_y, bm_walk_lb_rms_z))
 ```
 
 ### Standard Error of Measurement (SEM), MD (Minimal Difference), & Coefficient of Variation (CoV)
@@ -840,7 +851,7 @@ $$
 \text{MD}  & = \text{SEM} \times Z_{\text{crit}} \times \sqrt{2} \\
 \text{CoV} & = \left( \frac{\text{SEM}}{\text{Grand Mean}} \right) \times 100 \\
 \end{align*}
-$$
+$$ {#eq-absolute-reliability}
 
 ```{r}
 # Calculates SEM, MD, and CoV 
@@ -872,7 +883,9 @@ The 95% and 89% credible intervals for both the Standard Error of Measurement (S
 # Calculate SEM and CoV using parameters from posterior 
 bayes_sem_tbl <- calculate_bayes_sem(list(
   bm_run_avg_pta, bm_run_rt_pta, bm_run_lt_pta, 
-  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z, bm_walk_avg_pta))
+  bm_run_lb_pa, bm_run_lb_rms_x, bm_run_lb_rms_y, bm_run_lb_rms_z, 
+  bm_walk_avg_pta, bm_walk_rt_pta, bm_walk_lt_pta, 
+  bm_walk_lb_pa, bm_walk_lb_rms_x, bm_walk_lb_rms_y, bm_walk_lb_rms_z))
 ```
 
 ```{r}

@@ -1,0 +1,97 @@
+---
+title: "Ch.4"
+subtitle: "IMU Training Load Study"
+date: "`r format(Sys.time(), '%d %B, %Y')`" # today's date
+author: "Reiley Bergin"
+title-block-banner: "#1B365D"
+execute:
+  warning: false
+  message: false
+format: 
+  html:
+    embed-resources: true
+    smooth-scroll: true
+    toc: true
+    toc-depth: 3
+    echo: false
+    code-tools: true
+    link-external-newwindow: true
+editor: visual
+---
+
+```{r}
+#| label: Packages & Themes
+
+library(tidyverse)
+library(readr)
+library(lme4)
+library(brms)
+library(easystats)
+library(emmeans)
+
+theme_set(theme_bw())
+```
+
+```{r}
+#| label: Data Prep
+
+full_dataset <- read_csv("data/ch.4_data.csv") %>%
+  
+  # remove the two subjects who did not complete heavy week 
+  filter(sub_id != "Sub007", sub_id != "Sub008") %>%
+  
+  # lb = low back, rt = right tibia, lt = left tibia
+  mutate(
+    variable = str_replace_all(variable, c(
+      "ax_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_x_rms_ratio",
+      "ay_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_y_rms_ratio",
+      "az_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_z_rms_ratio", 
+      "control entropy" = "lb_control_entropy",
+      "res_g_avg_peak_lt_1600hz" = "lt_res_pk_accel_g",
+      "res_g_avg_peak_rt_1600hz" = "rt_res_pk_accel_g",
+      "res_g_avg_peak_back_1600hz" = "lb_res_pk_accel_g")))
+
+# Calculate average for left and right tibia ---
+rt_lt_avg <- full_dataset %>%
+  filter(variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
+  group_by(sub_id, run_type) %>%
+  # NOTE: if subject is missing rt or lt then mean is just available value
+  summarize(rt_lt_avg_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  # Format the table to match the orginal
+  mutate(
+    variable = "rt_lt_avg_res_pk_accel_g", 
+    value = rt_lt_avg_res_pk_accel_g) %>%
+  select(sub_id, run_type, variable, value)
+# Append the new rows to the original dataset
+full_dataset <- bind_rows(full_dataset, rt_lt_avg) %>%
+  arrange(sub_id, run_type, variable)
+```
+
+### Shock attenuation in the time domain
+
+$$
+\begin{align*}
+\text{Shock Attenuation} & = \left( 1 - \frac{\text{Low Back Peak Accel}}{\text{Tibia Peak Accel}} \right) \times 100 \\\end{align*}
+$$ {#eq-shock-attenutation}
+
+```{r}
+#| label: Calc Shock Attenuation
+
+# Join tables to calculate across columns
+shock_attenuation <- full_dataset %>%
+  filter(variable == "lb_res_pk_accel_g") %>%
+  left_join(full_dataset %>% filter(variable == "rt_lt_avg_res_pk_accel_g"),
+            by = c("sub_id", "run_type")) %>%
+  mutate(shock_atten = (1 - (value.x / value.y)) * 100) %>%
+  # Select relevant columns and rename for clarity
+  select(sub_id, run_type, variable = variable.x, shock_atten)
+
+# Append to full dataset
+
+```
+
+### CoV during light week
+
+```{r}
+#| label: Calc CoV During Light Week
+```

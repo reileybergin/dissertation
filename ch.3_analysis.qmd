@@ -185,6 +185,26 @@ calculate_summary_stats <- function(data) {
   return(final_table)
 }
 
+# Mean difference & sd of difference between time pts ---
+
+calculate_mean_and_sd_diff <- function(data) {
+  
+  # Step 1: Calculate the difference between Time 1 and Time 0 for each subject
+  differences <- data %>%
+    select(sub_id, variable, run_type, value, time_pt) %>%
+    pivot_wider(names_from = time_pt, values_from = value, names_prefix = "time") %>%
+    mutate(difference = time1 - time0)
+  
+  # Step 2: Calculate the mean and sd of this difference
+  summary_stats <- differences %>%
+    group_by(variable, run_type) %>%
+    summarise(mean_diff = mean(difference, na.rm = TRUE),
+              sd_diff = sd(difference, na.rm = TRUE), .groups = 'drop') %>%
+    mutate_if(is.numeric, round, digits = 2)
+  
+  return(summary_stats)
+}
+
 # Bayesian Model -----
 
 fit_bayes_model <- function(data, variable_filter, run_type_filter, intercept_prior, b_prior) {
@@ -534,6 +554,11 @@ stats_tbl <- calculate_summary_stats(reliability_data)
 ```
 
 ```{r}
+# table with mean diff and sd diff
+diff_tbl <- calculate_mean_and_sd_diff(reliability_data)
+```
+
+```{r}
 # dictonary for each variable/ run_type
 dfs <- create_dfs_dict(reliability_data)
 ```
@@ -541,7 +566,7 @@ dfs <- create_dfs_dict(reliability_data)
 ```{r}
 #| label:  Plot raw data
 
-dfs[["lb_res_pk_accel_g_run"]] %>%
+dfs[["rt_res_pk_accel_g_walk"]] %>%
   ggplot(aes(y = sub_id, x = value, color = factor(time_pt))) +
   geom_line(aes(group = sub_id)) +  
   geom_point(size = 2) +            
@@ -893,6 +918,7 @@ bayes_sem_tbl <- calculate_bayes_sem(list(
 
 # Full Table
 results_reliability <- stats_tbl %>%
+  inner_join(diff_tbl, by = c("variable", "run_type")) %>%
   inner_join(freq_icc_pysch_tbl, by = c("variable", "run_type")) %>%
   inner_join(freq_icc_lmm_tbl, by = c("variable", "run_type")) %>%
   inner_join(bayes_icc_tbl, by = c("variable", "run_type")) %>%
@@ -927,6 +953,8 @@ validity_run_data <- read_csv("data/ch.3_validity_data.csv") %>%
   filter(run_type == "run") %>%
   select(-run_type, -leg) %>%
   pivot_wider(names_from = variable, values_from = value) %>%
+  # Remove columns that start with 'imu_yaxis'
+  select(-starts_with("imu_yaxis")) %>%
   # Remove '_500hz'
   rename_with(~ gsub("_500hz", "", .), .cols = everything())  
 
@@ -937,6 +965,8 @@ validity_walk_data <- read_csv("data/ch.3_validity_data.csv") %>%
   filter(run_type == "walk") %>%
   select(-run_type, -leg) %>%
   pivot_wider(names_from = variable, values_from = value) %>%
+  # Remove columns that start with 'imu_yaxis'
+  select(-starts_with("imu_yaxis")) %>%
   # Remove '_500hz'
   rename_with(~ gsub("_500hz", "", .), .cols = everything())  
 
@@ -962,16 +992,20 @@ walk_correlations_tbl <- correlation(validity_walk_data)
 # Scatter Plots
 
 # Running
-plot(cor_test(validity_run_data, "max_grf_mag_z_bm", "max_knee_force_z"))
+plot(cor_test(validity_run_data, "imu_res_g_avg_peak_rt", "pk_vert_grf_z_bm"))
 
 # Walking
-plot(cor_test(validity_walk_data, "max_grf_mag_z_bm", "max_knee_force_z"))
+plot(cor_test(validity_walk_data, "imu_res_g_avg_peak_rt", "pk_vert_grf_z_bm"))
 ```
 
 ```{r}
 #| label: Export Validity Results
 
-# Write the matrix run_correlations_tbl to a CSV file
-write.csv(run_correlations_tbl, "ch.3_results/validity_run_corr_matrix.csv", row.names = TRUE)
-write.csv(walk_correlations_tbl, "ch.3_results/validity_walk_corr_matrix.csv", row.names = TRUE)
+# Matrix
+write.csv(run_correlations_tbl, "ch.3_results/validity_run_corr_matrix_res_only.csv", row.names = TRUE)
+write.csv(walk_correlations_tbl, "ch.3_results/validity_walk_corr_matrix_res_only.csv", row.names = TRUE)
+
+# Table
+write.csv(run_correlations_tbl, "ch.3_results/validity_run_corr_matrix_res_only.csv", row.names = TRUE)
+write.csv(walk_correlations_tbl, "ch.3_results/validity_walk_corr_matrix_res_only.csv", row.names = TRUE)
 ```

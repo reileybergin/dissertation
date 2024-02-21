@@ -154,6 +154,16 @@
         "Rcpp"
       ]
     },
+    "arrayhelpers": {
+      "Package": "arrayhelpers",
+      "Version": "1.1-0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "3d4e52d458784c335af3846f2de64f75",
+      "Requirements": [
+        "svUnit"
+      ]
+    },
     "askpass": {
       "Package": "askpass",
       "Version": "1.2.0",
@@ -200,10 +210,10 @@
     },
     "bayestestR": {
       "Package": "bayestestR",
-      "Version": "0.13.1",
+      "Version": "0.13.2",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "61f643ea5ee9fe0e70ab0246340b3c2e",
+      "Hash": "4a6a2eebe2db1dfb1c792c4ed91e73dc",
       "Requirements": [
         "datawizard",
         "insight"
@@ -696,6 +706,14 @@
         "performance"
       ]
     },
+    "effsize": {
+      "Package": "effsize",
+      "Version": "0.8.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "8d00cc615bfe85d56071542db9d94db9",
+      "Requirements": []
+    },
     "ellipsis": {
       "Package": "ellipsis",
       "Version": "0.3.2",
@@ -812,6 +830,29 @@
       "Hash": "15e9634c0fcd294799e9b2e929ed1b86",
       "Requirements": []
     },
+    "ggdist": {
+      "Package": "ggdist",
+      "Version": "3.3.1",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "1ff5363a7be601af61cf89ef60e428d3",
+      "Requirements": [
+        "Rcpp",
+        "cli",
+        "distributional",
+        "dplyr",
+        "ggplot2",
+        "glue",
+        "numDeriv",
+        "quadprog",
+        "rlang",
+        "scales",
+        "tibble",
+        "tidyselect",
+        "vctrs",
+        "withr"
+      ]
+    },
     "gghalves": {
       "Package": "gghalves",
       "Version": "0.1.4",
@@ -841,6 +882,20 @@
         "scales",
         "tibble",
         "vctrs",
+        "withr"
+      ]
+    },
+    "ggrepel": {
+      "Package": "ggrepel",
+      "Version": "0.9.5",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "cc3361e234c4a5050e29697d675764aa",
+      "Requirements": [
+        "Rcpp",
+        "ggplot2",
+        "rlang",
+        "scales",
         "withr"
       ]
     },
@@ -1087,10 +1142,10 @@
     },
     "insight": {
       "Package": "insight",
-      "Version": "0.19.7",
+      "Version": "0.19.8",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "750aba9b42391da33ac290b71a749023",
+      "Hash": "adcc19435135a4d211e5aa2e48e4f6b7",
       "Requirements": []
     },
     "isoband": {
@@ -1315,10 +1370,10 @@
     },
     "modelbased": {
       "Package": "modelbased",
-      "Version": "0.8.6",
+      "Version": "0.8.7",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "60a0171d055dc3122d7d2b6ed31e8003",
+      "Hash": "857859a5dd55f53a2c6ab14fbdb6acc1",
       "Requirements": [
         "bayestestR",
         "datawizard",
@@ -1409,6 +1464,18 @@
         "askpass"
       ]
     },
+    "openxlsx": {
+      "Package": "openxlsx",
+      "Version": "4.2.5.2",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "c03b4c18d42da881fb8e15a085c2b9d6",
+      "Requirements": [
+        "Rcpp",
+        "stringi",
+        "zip"
+      ]
+    },
     "parallelly": {
       "Package": "parallelly",
       "Version": "1.36.0",
@@ -1419,10 +1486,10 @@
     },
     "parameters": {
       "Package": "parameters",
-      "Version": "0.21.3",
+      "Version": "0.21.5",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "d6b15d1e41faf8951b59f5b3051ad3e3",
+      "Hash": "0e17cb609f27608c8312a822d7d85cc2",
       "Requirements": [
         "bayestestR",
         "datawizard",
@@ -1431,10 +1498,10 @@
     },
     "performance": {
       "Package": "performance",
-      "Version": "0.10.8",
+      "Version": "0.10.9",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "92873fb57cc5b73fe2aa0b09056a789a",
+      "Hash": "ef9fcec8b9afc2bc3f8d49544681f6fe",
       "Requirements": [
         "bayestestR",
         "datawizard",
@@ -1613,6 +1680,14 @@
         "rlang",
         "vctrs"
       ]
+    },
+    "quadprog": {
+      "Package": "quadprog",
+      "Version": "1.5-8",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "5f919ae5e7f83a6f91dcf2288943370d",
+      "Requirements": []
     },
     "ragg": {
       "Package": "ragg",
@@ -1911,10 +1986,10 @@
     },
     "see": {
       "Package": "see",
-      "Version": "0.8.1",
+      "Version": "0.8.2",
       "Source": "Repository",
       "Repository": "CRAN",
-      "Hash": "da9e81f514670067479254209b6c80a7",
+      "Hash": "db586788615810d64a950cc1f2e8bb85",
       "Requirements": [
         "bayestestR",
         "correlation",
@@ -2062,6 +2137,14 @@
         "vctrs"
       ]
     },
+    "svUnit": {
+      "Package": "svUnit",
+      "Version": "1.0.6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "894d0aff9585344af4ab78e2b4d60ab7",
+      "Requirements": []
+    },
     "sys": {
       "Package": "sys",
       "Version": "3.4.2",
@@ -2152,6 +2235,29 @@
         "pkgconfig",
         "rlang",
         "vctrs"
+      ]
+    },
+    "tidybayes": {
+      "Package": "tidybayes",
+      "Version": "3.0.6",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "3853596458d8b9c81f7b39ee920c5319",
+      "Requirements": [
+        "arrayhelpers",
+        "cli",
+        "coda",
+        "dplyr",
+        "ggdist",
+        "ggplot2",
+        "magrittr",
+        "posterior",
+        "rlang",
+        "tibble",
+        "tidyr",
+        "tidyselect",
+        "vctrs",
+        "withr"
       ]
     },
     "tidyr": {
@@ -2386,6 +2492,14 @@
       "Source": "Repository",
       "Repository": "CRAN",
       "Hash": "29240487a071f535f5e5d5a323b7afbd",
+      "Requirements": []
+    },
+    "zip": {
+      "Package": "zip",
+      "Version": "2.3.0",
+      "Source": "Repository",
+      "Repository": "CRAN",
+      "Hash": "d98c94dacb7e0efcf83b0a133a705504",
       "Requirements": []
     },
     "zoo": {

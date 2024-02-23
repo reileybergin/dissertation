@@ -30,7 +30,7 @@ library(readr)
 theme_set(theme_bw())
 ```
 
-The goal here is to obtain an estimate about the change in reaction time (longer reaction time means getting worse) following a number of days of sleep deprivation. Let\'s get a plot of the average change in reaction time for each day of sleep deprivation.
+The goal here is to obtain an estimate about the change in reaction time (longer reaction time means getting worse) following a number of days of sleep deprivation. Let's get a plot of the average change in reaction time for each day of sleep deprivation.
 
 ```{r}
 # NOTE: the Subject column is already set as a **factor**
@@ -58,7 +58,7 @@ dat %>%
 
 Okay, we can clearly see that something is going on here. As the days of sleep deprivation increase the reaction time in the test is also increasing, a fairly intuitive finding.
 
-However, we also know that we are dealing with repeated measures on a number of subjects. As such, some subjects might have differences that vary from the group. For example, some might have a worse effect than the population average while others might not be that impacted at all. Let\'s tease this out visually.
+However, we also know that we are dealing with repeated measures on a number of subjects. As such, some subjects might have differences that vary from the group. For example, some might have a worse effect than the population average while others might not be that impacted at all. Let's tease this out visually.
 
 This is interesting. While we do see that many of the subjects exhibit an increase reaction time as the number of days of sleep deprivation increase there are a few subjects that behave differently from the norm. For example, **Subject 309 seems to have no real change** in reaction time while **Subject 335 is showing a slight negative trend!**
 
@@ -93,9 +93,9 @@ summary(fit_ols)
 
 ### Summary Measures Approach
 
-The basic approach suggested by [Matthews and Altman](https://pubmed.ncbi.nlm.nih.gov/2106931/) for this type of serially collected data is to treat each individual as the unit of measure and **identify a single number, which summarizes that subject\'s response over time**.
+The basic approach suggested by [Matthews and Altman](https://pubmed.ncbi.nlm.nih.gov/2106931/) for this type of serially collected data is to treat each individual as the unit of measure and **identify a single number, which summarizes that subject's response over time**.
 
-For our analysis here, the variable that we are interested in for each subject is the Days slope coefficient, as this value tells us the rate of change in reaction time for every passing day of sleep deprivation. Let\'s construct a linear regression for each individual subject in the study and place their slope coefficients into a table.
+For our analysis here, the variable that we are interested in for each subject is the Days slope coefficient, as this value tells us the rate of change in reaction time for every passing day of sleep deprivation. Let's construct a linear regression for each individual subject in the study and place their slope coefficients into a table.
 
 As we noticed in our visual inspection, **Subject 335 had a negative trend and we can confirm their negative slope coefficient (-2.88)**. Subject 309 had a relatively flat relationship between days of sleep deprivation and reaction time. Here we see that their coefficient is 2.26 however the standard error, 0.98, indicates rather large uncertainty \[95% CI: 0.3 to 4.22\].
 
@@ -117,7 +117,7 @@ ind_days_slope %>%
              decimals = 3)
 ```
 
-Now we can look at how each Subject\'s response compares to the population. If we take the average of all of the slopes we get basically the same value that we got from our OLS model above, 10.47. I\'ll build two figures, one that shows each Subject\'s difference from the population average of 10.47 and one that shows each Subject\'s difference from the population centered at 0 (being no difference from the population average). Both tell the same story, but offer different ways of visualizing the subjects relative to the population.
+Now we can look at how each Subject's response compares to the population. If we take the average of all of the slopes we get basically the same value that we got from our OLS model above, 10.47. I'll build two figures, one that shows each Subject's difference from the population average of 10.47 and one that shows each Subject's difference from the population centered at 0 (being no difference from the population average). Both tell the same story, but offer different ways of visualizing the subjects relative to the population.
 
 From the plots, it is clear to see how each individual behaves compared to the population average.
 
@@ -163,7 +163,7 @@ plt_to_avg | plt_to_zero
 
 ### Mixed Models
 
-In the simple linear model approach above, the *Subjects shared the same variance*, [which isn\'t accurate given that each subject behaves slightly differently,]{.underline} which we saw in our initial plot and in the individual linear regression models we constructed in the prior section.
+In the simple linear model approach above, the *Subjects shared the same variance*, [which isn't accurate given that each subject behaves slightly differently,]{.underline} which we saw in our initial plot and in the individual linear regression models we constructed in the prior section.
 
 So, we want to acknowledge that there are individual subjects that may vary from the population, while also modeling our question of interest (Reaction Time \~ Days of Sleep Deprivation).
 
@@ -174,7 +174,7 @@ fit2 <- lmer(Reaction ~ Days + (1|Subject), data = dat)
 display(fit2)
 ```
 
-Let\'s look at the random effects intercept for *each* individual relative to the fixed effect intercept.
+Let's look at the random effects intercept for *each* individual relative to the fixed effect intercept.
 
 For example, Subject 309 has an intercept that is 77.8 seconds below the fixed effect intercept, while Subject 308 is 40.8 seconds above the fixed effect intercept.
 
@@ -184,7 +184,7 @@ ranef(fit2)
 
 If we use the **coef()** function we get returned the actual individual linear regression equation for each subject.
 
-Their difference compared to the population will be added to the fixed effect intercept, to create their individual intercept, and we will see the days coefficient, which is the same for each subject because we haven\'t specified a varying slope model (yet).
+Their difference compared to the population will be added to the fixed effect intercept, to create their individual intercept, and we will see the days coefficient, which is the same for each subject because we haven't specified a varying slope model (yet).
 
 ```{r}
 coef(fit2)
@@ -199,7 +199,7 @@ fit3 <- lmer(Reaction ~ Days + (1 + Days|Subject), data = dat)
 display(fit3)
 ```
 
-Let\'s take a look at the regression model for each individual.
+Let's take a look at the regression model for each individual.
 
 ```{r}
 coef(fit3)
@@ -215,7 +215,7 @@ lattice::dotplot(ranef(fit3, condVar = T))
 fit_bayes <- brm(Reaction ~ Days + (1 + Days|Subject), data = dat)
 ```
 
-Let\'s see what the posterior draws for all of the parameters in our model look like.
+Let's see what the posterior draws for all of the parameters in our model look like.
 
 ```{r}
 post_sims <- as.matrix(fit_bayes)

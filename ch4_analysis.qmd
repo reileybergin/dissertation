@@ -38,18 +38,18 @@ theme_set(theme_bw())
 full_dataset <- read_csv("data/ch.4_data.csv") %>%
   
   # Remove the two subjects who did not complete heavy week 
-  filter(sub_id != "rub007", sub_id != "run008") %>%
+  filter(sub_id != "run007", sub_id != "run008") %>%
   
-  # Clean up variable names; lb = low back, rt = right tibia, lt = left tibia
+  # Clean up variable names; lb = low back, tb = tibia
   mutate(
     variable = str_replace_all(variable, c(
-      "ax_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_x_rms_ratio",
-      "ay_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_y_rms_ratio",
-      "az_m/s/s_meanshift_filtered_rms_1600hz_ratio" = "lb_z_rms_ratio", 
+      "ax_m/s/s_meanshift_filtered_rms_1125hz_ratio" = "lb_x_rms_ratio",
+      "ay_m/s/s_meanshift_filtered_rms_1125hz_ratio" = "lb_y_rms_ratio",
+      "az_m/s/s_meanshift_filtered_rms_1125hz_ratio" = "lb_z_rms_ratio", 
       "control entropy" = "lb_control_entropy",
       "res_g_avg_peak_lt_1600hz" = "lt_res_pk_accel_g",
       "res_g_avg_peak_rt_1600hz" = "rt_res_pk_accel_g",
-      "res_g_avg_peak_back_1600hz" = "lb_res_pk_accel_g"))) 
+      "res_g_avg_peak_back_1125hz" = "lb_res_pk_accel_g"))) 
   
 # Calculate avg for left and right tibia
 rt_lt_avg <- full_dataset %>%
@@ -60,18 +60,21 @@ rt_lt_avg <- full_dataset %>%
   summarize(rt_lt_avg_res_pk_accel_g = mean(value, na.rm = TRUE), .groups = 'drop') %>%
   
   mutate(
-    variable = "rt_lt_avg_res_pk_accel_g", 
+    variable = "tb_res_pk_accel_g", 
     value = rt_lt_avg_res_pk_accel_g) %>%
   select(sub_id, run_type, variable, value)
 
 # Append the original dataset
 full_dataset <- bind_rows(full_dataset, rt_lt_avg) %>%
+  filter(!variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
   arrange(sub_id, run_type, variable)
 
 rm(rt_lt_avg)
 ```
 
-### CoV during light week
+### Coefficient of variation (CV) during light week
+
+The CV was calculated for each subject across the 4 light days. The mean CV for each variable was calculated across subjects.
 
 ```{r}
 #| label: Calc CoV During Light Week
@@ -80,26 +83,275 @@ lt_wk <- full_dataset %>%
   filter(str_starts(run_type, "LD") & run_type != "LD5")
 
 # Calculate mean, sd, and CoV for each subject and variable
-lt_wk_cov <- lt_wk %>%
+lt_wk_stats <- lt_wk %>%
   group_by(sub_id, variable) %>%
   summarize(
     mean = mean(value, na.rm = TRUE),
     sd = sd(value, na.rm = TRUE),
-    cov = sd(value, na.rm = TRUE) / mean(value, na.rm = TRUE), 
-    cov_per = round(cov*100, 2)
+    cv = sd(value, na.rm = TRUE) / mean(value, na.rm = TRUE), 
+    cv_per = round(cv*100, 2)
   ) %>%
-  ungroup() # Remove the grouping structure
+  ungroup()
+
+lt_wk_mean_cov <- lt_wk_stats  %>%
+  group_by(variable) %>%
+  summarize(
+    cv = mean(cv, na.rm = TRUE), 
+    cv_per = round(cv*100, 2)
+  ) %>%
+  ungroup() 
 ```
 
 ```{r}
 #| label: Plot Light Week
 
+# variables: tb_res_pk_accel_g, lb_res_pk_accel_g, lb_control_entropy, lb_x_rms_ratio, lb_y_rms_ratio, lb_z_rms_ratio
+
+# NOTE: no highg data for sub001 and D4 tibia for sub014
+
+lt_wk  %>%
+  filter(variable == "lb_res_pk_accel_g") %>%
+  ggplot(aes(x = run_type, y = value, group = sub_id)) +
+  geom_line(linewidth = 0.75) +
+  geom_point(shape = 21,
+             size = 2,
+             color = "black",
+             fill = "white") +
+  labs(x = "",
+       y = "",
+       title = "Light Week",
+       subtitle = "") +
+  facet_wrap(~sub_id) 
+```
+
+### Models
+
+```{r}
+#| label: Prep Data for Model
+
+# Calculate average values for LD5 and HD1, and label them as BAS
+bas_avg <- full_dataset %>%
+  filter(run_type %in% c("LD5", "HD1")) %>%
+  group_by(sub_id, variable) %>%
+  summarize(mean_value = mean(value, na.rm = TRUE), .groups = 'drop') %>%
+  mutate(run_type = "BAS", 
+         value = mean_value) %>%
+  select(sub_id, run_type, variable, value)
+
+# Append the BAS averages back to the original dataset
+model_data <- bind_rows(full_dataset, bas_avg) %>%
+  arrange(sub_id, run_type, variable)
+rm(bas_avg)
+
+# Remove light days 
+model_data <- model_data %>%
+  filter(!str_starts(run_type, "LD"))
+
+# Convert sub_id and run_type column values to factors
+model_data <- model_data %>%
+  mutate(
+    run_type = factor(run_type, levels = c("BAS", "HD1", "HD2", "HD3", "HD4", "HD5")),
+    sub_id = factor(sub_id)
+  )
+
+# Tables for each variable
+df_tb_res_pk_accel <- model_data %>%
+  filter(variable == "tb_res_pk_accel_g")
+
+df_lb_res_pk_accel <- model_data %>%
+  filter(variable == "lb_res_pk_accel_g")
+
+df_lb_control_entropy <- model_data %>%
+  filter(variable == "lb_control_entropy")
+
+df_lb_x_rms_ratio <- model_data %>%
+  filter(variable == "lb_x_rms_ratio")
+
+df_lb_y_rms_ratio <- model_data %>%
+  filter(variable == "lb_y_rms_ratio")
+
+df_lb_z_rms_ratio <- model_data %>%
+  filter(variable == "lb_z_rms_ratio")
+```
+
+```{r}
+#| label: Plot BAS to D5
+
+# variables: tb_res_pk_accel_g, lb_res_pk_accel_g, lb_control_entropy, lb_x_rms_ratio, lb_y_rms_ratio, lb_z_rms_ratio
+
+model_data %>%
+  filter(variable == "tb_res_pk_accel_g") %>%
+  ggplot(aes(x = run_type, y = value, group = sub_id)) +
+  geom_line(linewidth = 0.75) +
+  geom_point(shape = 21,
+             size = 2,
+             color = "black",
+             fill = "white") +
+  labs(x = "",
+       y = "",
+       title = "",
+       subtitle = "") +
+  facet_wrap(~sub_id) 
 ```
 
 #### Linear Mixed Model (LMM)
 
 ```{r}
-#| label: LMM
+#| label: LMMs
+
+lmm_tb_res_pk_accel <- lmer(value ~ run_type + (1|sub_id), data = df_tb_res_pk_accel)
+lmm_lb_res_pk_accel <- lmer(value ~ run_type + (1|sub_id), data = df_lb_res_pk_accel)
+lmm_lb_control_entropy <- lmer(value ~ run_type + (1|sub_id), data = df_lb_control_entropy)
+lmm_lb_x_rms_ratio <- lmer(value ~ run_type + (1|sub_id), data = df_lb_x_rms_ratio)
+lmm_lb_y_rms_ratio <- lmer(value ~ run_type + (1|sub_id), data = df_lb_y_rms_ratio)
+lmm_lb_z_rms_ratio <- lmer(value ~ run_type + (1|sub_id), data = df_lb_z_rms_ratio)
+```
+
+```{r}
+#| label: LMM Intercept Variance Plots
+
+lattice::dotplot(ranef(lmm_tb_res_pk_accel, condVar = T))
+lattice::dotplot(ranef(lmm_lb_res_pk_accel, condVar = T))
+lattice::dotplot(ranef(lmm_lb_control_entropy, condVar = T))
+lattice::dotplot(ranef(lmm_lb_x_rms_ratio, condVar = T))
+lattice::dotplot(ranef(lmm_lb_y_rms_ratio, condVar = T))
+lattice::dotplot(ranef(lmm_lb_z_rms_ratio, condVar = T))
 ```
 
 #### Bayesian Mixed Model (BMM)
+
+**Step 1:** Determine Priors
+
+Following Ellis 2022:
+
+-   The priors for standard deviation and sigma were restricted to be non-negative, using a half student-t prior with 3 degrees of freedom, a zero location and a scale parameter that is 2.5 or the median absolute deviation of the response variable of greater than 2.5.
+
+```{r}
+#| label: Median Absolute Deviation (MAD)
+
+mad_tb_res_pk_accel <- df_tb_res_pk_accel %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+
+mad_lb_res_pk_accel <- df_lb_res_pk_accel %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+
+mad_lb_control_entropy <- df_lb_control_entropy %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+
+mad_lb_x_rms_ratio <- df_lb_x_rms_ratio %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+
+mad_lb_y_rms_ratio <- df_lb_y_rms_ratio %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+
+mad_lb_z_rms_ratio <- df_lb_z_rms_ratio %>%
+  summarise(MAD = round(mad(value), 3)) %>%
+  pull(MAD)
+```
+
+```{r}
+
+# 98% of values fall within
+
+# Calculate the range for a given normal distribution ----
+
+calculate_range <- function(mean, std_dev) {
+  # Z-scores for the lower and upper bounds (1% and 99%)
+  z_score_lower <- qnorm(0.01)
+  z_score_upper <- qnorm(0.99)
+  
+  # Calculate the range of values within the 98% interval
+  interval_lower <- mean + z_score_lower * std_dev
+  interval_upper <- mean + z_score_upper * std_dev
+  
+  return(c(interval_lower, interval_upper))
+}
+
+mean <- 0.000
+std_dev <- 1.5
+range <- calculate_range(mean, std_dev)
+range
+```
+
+```{r}
+#| label: Priors
+
+priors_tb_res_pk_accel <- c(
+  prior(normal(10.000, 3.250), class = "Intercept", lb=0),
+  prior(normal(0.000, 1.500), class = "b"),
+  prior(student_t(3, 0, 3.872), class = "sd"),
+  prior(student_t(3, 0, 3.872), class = "sigma"))
+
+priors_lb_res_pk_accel <- c(
+  prior(normal(3.770, 0.810), class = "Intercept", lb=0),
+  prior(normal(0.000, 0.500), class = "b"),
+  prior(student_t(3, 0, 2.5), class = "sd"),
+  prior(student_t(3, 0, 2.5), class = "sigma"))
+```
+
+```{r}
+#| label: BMM - Tibia RES Peak Accel
+
+bmm_tb_res_pk_accel <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_tb_res_pk_accel,
+    family = gaussian(),
+    prior = priors_tb_res_pk_accel,
+    warmup = 2000, iter = 10000,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+```
+
+```{r}
+#| label: BMM - Low Back RES Peak Accel
+
+bmm_lb_res_pk_accel <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_lb_res_pk_accel,
+    family = gaussian(),
+    prior = priors_lb_res_pk_accel,
+    warmup = 2000, iter = 10000,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+```
+
+```{r}
+#| label: Estimated Marginal Means 
+
+em_tb_res_pk_accel <- emmeans(bmm_tb_res_pk_accel, ~ run_type, level = 0.89)
+em_lb_res_pk_accel <- emmeans(bmm_lb_res_pk_accel, ~ run_type, level = 0.89)
+```
+
+```{r}
+#| label: Mean Diff 
+
+diff_em_tb_res_pk_accel <- pairs(em_tb_res_pk_accel)
+diff_em_lb_res_pk_accel <- pairs(em_lb_res_pk_accel)
+```
+
+```{r}
+
+bayestestR::p_direction(diff_em_tb_res_pk_accel)
+```
+
+```{r}
+
+bayestestR::p_direction(diff_em_lb_res_pk_accel)
+```
+
+```{r}
+
+bayestestR::p_significance(diff_em_tb_res_pk_accel, threshold = 0.7989317) 
+```
+
+```{r}
+
+bayestestR::p_significance(diff_em_lb_res_pk_accel, threshold = 0.4080071) 
+```

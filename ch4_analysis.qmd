@@ -28,6 +28,7 @@ library(lme4)
 library(brms)
 library(easystats)
 library(emmeans)
+library(openxlsx)
 
 theme_set(theme_bw())
 ```
@@ -70,6 +71,23 @@ full_dataset <- bind_rows(full_dataset, rt_lt_avg) %>%
   arrange(sub_id, run_type, variable)
 
 rm(rt_lt_avg)
+```
+
+```{r}
+#| label: Functions
+
+# Write or append a dataframe to an Excel file as a new sheet
+write_or_append_xlsx <- function(dataframe, filename, sheetName, row.names=FALSE) {
+  if (file.exists(filename)) {
+    wb <- loadWorkbook(filename) # Load the existing workbook
+  } else {
+    wb <- createWorkbook() # Or create a new one if it doesn't exist
+  }
+  addWorksheet(wb, sheetName)
+  writeData(wb, sheetName, dataframe, rowNames=row.names)
+  saveWorkbook(wb, filename, overwrite = TRUE)
+}
+
 ```
 
 ### Coefficient of variation (CV) during light week
@@ -232,7 +250,6 @@ bmm_tb_res_pk_accel <-
     data = df_tb_res_pk_accel,
     family = gaussian(),
     prior = prior(normal(9.47, 2.34), class = Intercept, lb=0),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 
@@ -242,7 +259,6 @@ bmm_lb_res_pk_accel <-
     data = df_lb_res_pk_accel,
     family = gaussian(),
     prior = prior(normal(5.40, 2.02), class = Intercept, lb=0),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 
@@ -252,7 +268,6 @@ bmm_lb_control_entropy <-
     data = df_lb_control_entropy,
     family = gaussian(),
     prior = prior(normal(0.618, 0.103), class = Intercept, lb=0),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 
@@ -262,7 +277,6 @@ bmm_lb_x_rms_ratio <-
     data = df_lb_x_rms_ratio,
     family = gaussian(),
     prior = prior(normal(0.41, 0.11), class = Intercept, lb=0, ub=1),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 
@@ -272,7 +286,6 @@ bmm_lb_y_rms_ratio <-
     data = df_lb_y_rms_ratio,
     family = gaussian(),
     prior = prior(normal(0.84, 0.08), class = Intercept, lb=0, ub=1),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 
@@ -282,7 +295,6 @@ bmm_lb_z_rms_ratio <-
     data = df_lb_z_rms_ratio,
     family = gaussian(),
     prior = prior(normal(0.32, 0.06), class = Intercept, lb=0, ub=1),
-    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 ```
@@ -294,6 +306,13 @@ bmm_lb_z_rms_ratio <-
 2.  **R-hat ≤ 1.01**: Usually considered acceptable. Values in this range suggest that convergence is likely adequate, and the MCMC samples can be trusted for inference.
 
 3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
+
+```{r}
+#| label: Rhat Check
+
+model_to_check <- bmm_lb_z_rms_ratio
+rhat(model_to_check)
+```
 
 ```{r}
 #| label: Posterior Predictive Checks
@@ -401,6 +420,48 @@ ps_lb_control_entropy <- bayestestR::p_significance(diff_em_lb_control_entropy, 
 ps_lb_x_rms_ratio <- bayestestR::p_significance(diff_em_lb_x_rms_ratio, threshold = cv_thres_lb_x_rms_ratio)
 ps_lb_y_rms_ratio <- bayestestR::p_significance(diff_em_lb_y_rms_ratio, threshold = cv_thres_lb_y_rms_ratio)
 ps_lb_z_rms_ratio <- bayestestR::p_significance(diff_em_lb_z_rms_ratio, threshold = cv_thres_lb_z_rms_ratio)
+```
+
+#### Export Results for Bayes Analysis
+
+```{r}
+#| label: Export Results for Bayes Analysis
+
+# tb_res_pk_accel
+write_or_append_xlsx(em_tb_res_pk_accel, "ch.4_results/tb_res_pk_accel.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_tb_res_pk_accel, "ch.4_results/tb_res_pk_accel.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_tb_res_pk_accel, "ch.4_results/tb_res_pk_accel.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_tb_res_pk_accel, "ch.4_results/tb_res_pk_accel.xlsx", "p_prac_sig", FALSE)
+
+# lb_res_pk_accel
+write_or_append_xlsx(em_lb_res_pk_accel, "ch.4_results/lb_res_pk_accel.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_lb_res_pk_accel, "ch.4_results/lb_res_pk_accel.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_lb_res_pk_accel, "ch.4_results/lb_res_pk_accel.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_lb_res_pk_accel, "ch.4_results/lb_res_pk_accel.xlsx", "p_prac_sig", FALSE)
+
+# lb_control_entropy
+write_or_append_xlsx(em_lb_control_entropy, "ch.4_results/lb_control_entropy.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_lb_control_entropy, "ch.4_results/lb_control_entropy.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_lb_control_entropy, "ch.4_results/lb_control_entropy.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_lb_control_entropy, "ch.4_results/lb_control_entropy.xlsx", "p_prac_sig", FALSE)
+
+# lb_x_rms_ratio
+write_or_append_xlsx(em_lb_x_rms_ratio, "ch.4_results/lb_x_rms_ratio.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_lb_x_rms_ratio, "ch.4_results/lb_x_rms_ratio.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_lb_x_rms_ratio, "ch.4_results/lb_x_rms_ratio.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_lb_x_rms_ratio, "ch.4_results/lb_x_rms_ratio.xlsx", "p_prac_sig", FALSE)
+
+# lb_y_rms_ratio
+write_or_append_xlsx(em_lb_y_rms_ratio, "ch.4_results/lb_y_rms_ratio.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_lb_y_rms_ratio, "ch.4_results/lb_y_rms_ratio.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_lb_y_rms_ratio, "ch.4_results/lb_y_rms_ratio.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_lb_y_rms_ratio, "ch.4_results/lb_y_rms_ratio.xlsx", "p_prac_sig", FALSE)
+
+# lb_z_rms_ratio
+write_or_append_xlsx(em_lb_z_rms_ratio, "ch.4_results/lb_z_rms_ratio.xlsx", "emm", FALSE)
+write_or_append_xlsx(diff_em_lb_z_rms_ratio, "ch.4_results/lb_z_rms_ratio.xlsx", "diff", FALSE)
+write_or_append_xlsx(pd_lb_z_rms_ratio, "ch.4_results/lb_z_rms_ratio.xlsx", "p_dir", FALSE)
+write_or_append_xlsx(ps_lb_z_rms_ratio, "ch.4_results/lb_z_rms_ratio.xlsx", "p_prac_sig", FALSE)
 ```
 
 ### Individual-Level Analysis

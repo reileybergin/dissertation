@@ -110,7 +110,7 @@ lt_wk_mean_cov <- lt_wk_stats  %>%
 # NOTE: no highg data for sub001 and D4 tibia for sub014
 
 lt_wk  %>%
-  filter(variable == "lb_res_pk_accel_g") %>%
+  filter(variable == "lb_x_rms_ratio") %>%
   ggplot(aes(x = run_type, y = value, group = sub_id)) +
   geom_line(linewidth = 0.75) +
   geom_point(shape = 21,
@@ -143,33 +143,28 @@ model_data <- bind_rows(full_dataset, bas_avg) %>%
   arrange(sub_id, run_type, variable)
 rm(bas_avg)
 
-# Remove light days 
+# Remove light days and heavy D1 (part of baseline calc)
 model_data <- model_data %>%
-  filter(!str_starts(run_type, "LD"))
+  filter(!str_starts(run_type, "LD")& run_type != "HD1")
 
 # Convert sub_id and run_type column values to factors
 model_data <- model_data %>%
   mutate(
-    run_type = factor(run_type, levels = c("BAS", "HD1", "HD2", "HD3", "HD4", "HD5")),
+    run_type = factor(run_type, levels = c("BAS", "HD2", "HD3", "HD4", "HD5")),
     sub_id = factor(sub_id)
   )
 
 # Tables for each variable
 df_tb_res_pk_accel <- model_data %>%
   filter(variable == "tb_res_pk_accel_g")
-
 df_lb_res_pk_accel <- model_data %>%
   filter(variable == "lb_res_pk_accel_g")
-
 df_lb_control_entropy <- model_data %>%
   filter(variable == "lb_control_entropy")
-
 df_lb_x_rms_ratio <- model_data %>%
   filter(variable == "lb_x_rms_ratio")
-
 df_lb_y_rms_ratio <- model_data %>%
   filter(variable == "lb_y_rms_ratio")
-
 df_lb_z_rms_ratio <- model_data %>%
   filter(variable == "lb_z_rms_ratio")
 ```
@@ -180,7 +175,7 @@ df_lb_z_rms_ratio <- model_data %>%
 # variables: tb_res_pk_accel_g, lb_res_pk_accel_g, lb_control_entropy, lb_x_rms_ratio, lb_y_rms_ratio, lb_z_rms_ratio
 
 model_data %>%
-  filter(variable == "tb_res_pk_accel_g") %>%
+  filter(variable == "lb_x_rms_ratio") %>%
   ggplot(aes(x = run_type, y = value, group = sub_id)) +
   geom_line(linewidth = 0.75) +
   geom_point(shape = 21,
@@ -220,138 +215,192 @@ lattice::dotplot(ranef(lmm_lb_z_rms_ratio, condVar = T))
 
 #### Bayesian Mixed Model (BMM)
 
-**Step 1:** Determine Priors
+Following Ellis 2022 for setting priors (note: when no priors are specified what Ellis described is what brms does on its own)
 
-Following Ellis 2022:
+-   Improper flat priors were were used for all b coefficients in the model.
 
--   The priors for standard deviation and sigma were restricted to be non-negative, using a half student-t prior with 3 degrees of freedom, a zero location and a scale parameter that is 2.5 or the median absolute deviation of the response variable of greater than 2.5.
+-   The priors for standard deviation and sigma were restricted to be non-negative, using a half student-t prior with 3 degrees of freedom, a zero location and a scale parameter that is 2.5 or the median absolute deviation of the response variable of greater than 2.5
 
-```{r}
-#| label: Median Absolute Deviation (MAD)
-
-mad_tb_res_pk_accel <- df_tb_res_pk_accel %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-
-mad_lb_res_pk_accel <- df_lb_res_pk_accel %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-
-mad_lb_control_entropy <- df_lb_control_entropy %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-
-mad_lb_x_rms_ratio <- df_lb_x_rms_ratio %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-
-mad_lb_y_rms_ratio <- df_lb_y_rms_ratio %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-
-mad_lb_z_rms_ratio <- df_lb_z_rms_ratio %>%
-  summarise(MAD = round(mad(value), 3)) %>%
-  pull(MAD)
-```
+Priors for intercepts come from the reliability study. Took the avg and sd using both time points pooled together. However, because I did not calculate control entropy for reliability study I used [Gruber 2021](https://www.frontiersin.org/articles/10.3389/fspor.2021.630975/full).
 
 ```{r}
-
-# 98% of values fall within
-
-# Calculate the range for a given normal distribution ----
-
-calculate_range <- function(mean, std_dev) {
-  # Z-scores for the lower and upper bounds (1% and 99%)
-  z_score_lower <- qnorm(0.01)
-  z_score_upper <- qnorm(0.99)
-  
-  # Calculate the range of values within the 98% interval
-  interval_lower <- mean + z_score_lower * std_dev
-  interval_upper <- mean + z_score_upper * std_dev
-  
-  return(c(interval_lower, interval_upper))
-}
-
-mean <- 0.000
-std_dev <- 1.5
-range <- calculate_range(mean, std_dev)
-range
-```
-
-```{r}
-#| label: Priors
-
-priors_tb_res_pk_accel <- c(
-  prior(normal(10.000, 3.250), class = "Intercept", lb=0),
-  prior(normal(0.000, 1.500), class = "b"),
-  prior(student_t(3, 0, 3.872), class = "sd"),
-  prior(student_t(3, 0, 3.872), class = "sigma"))
-
-priors_lb_res_pk_accel <- c(
-  prior(normal(3.770, 0.810), class = "Intercept", lb=0),
-  prior(normal(0.000, 0.500), class = "b"),
-  prior(student_t(3, 0, 2.5), class = "sd"),
-  prior(student_t(3, 0, 2.5), class = "sigma"))
-```
-
-```{r}
-#| label: BMM - Tibia RES Peak Accel
+#| label: Fit BMMs
 
 bmm_tb_res_pk_accel <-
   brm(
     value ~ run_type + (1|sub_id),
     data = df_tb_res_pk_accel,
     family = gaussian(),
-    prior = priors_tb_res_pk_accel,
-    warmup = 2000, iter = 10000,
+    prior = prior(normal(9.47, 2.34), class = Intercept, lb=0),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
-```
-
-```{r}
-#| label: BMM - Low Back RES Peak Accel
 
 bmm_lb_res_pk_accel <-
   brm(
     value ~ run_type + (1|sub_id),
     data = df_lb_res_pk_accel,
     family = gaussian(),
-    prior = priors_lb_res_pk_accel,
-    warmup = 2000, iter = 10000,
+    prior = prior(normal(5.40, 2.02), class = Intercept, lb=0),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+
+bmm_lb_control_entropy <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_lb_control_entropy,
+    family = gaussian(),
+    prior = prior(normal(0.618, 0.103), class = Intercept, lb=0),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+
+bmm_lb_x_rms_ratio <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_lb_x_rms_ratio,
+    family = gaussian(),
+    prior = prior(normal(0.41, 0.11), class = Intercept, lb=0, ub=1),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+
+bmm_lb_y_rms_ratio <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_lb_y_rms_ratio,
+    family = gaussian(),
+    prior = prior(normal(0.84, 0.08), class = Intercept, lb=0, ub=1),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+    control = list(adapt_delta = 0.99, max_treedepth = 15),
+    refresh = 0)
+
+bmm_lb_z_rms_ratio <-
+  brm(
+    value ~ run_type + (1|sub_id),
+    data = df_lb_z_rms_ratio,
+    family = gaussian(),
+    prior = prior(normal(0.32, 0.06), class = Intercept, lb=0, ub=1),
+    iter = 2000, warmup = 1000, chains = 4, cores = 4,
     control = list(adapt_delta = 0.99, max_treedepth = 15),
     refresh = 0)
 ```
 
+#### Model Checking
+
+1.  **R-hat ≈ 1.0**: Indicates that the chains have converged to a common distribution. The closer R-hat is to 1.0, the better.
+
+2.  **R-hat ≤ 1.01**: Usually considered acceptable. Values in this range suggest that convergence is likely adequate, and the MCMC samples can be trusted for inference.
+
+3.  **R-hat \> 1.01**: Indicates potential issues with convergence. If R-hat is significantly greater than 1.01, it suggests that the chains have not mixed well, and the MCMC simulation may not have adequately explored the posterior distribution. In such cases, it's advisable to investigate further, which might involve running more iterations, adjusting the model, or improving the tuning of the MCMC algorithm
+
 ```{r}
-#| label: Estimated Marginal Means 
+#| label: Posterior Predictive Checks
+
+model_to_check <- bmm_lb_z_rms_ratio
+
+pp_check(model_to_check, ndraws = 50)
+pp_check(model_to_check, "stat")
+pp_check(model_to_check, "stat_grouped", group = "run_type")
+```
+
+```{r}
+#| label: Leave-One-Out Validation
+
+loo_bmm_tb_res_pk_accel <- loo(bmm_tb_res_pk_accel)
+loo_bmm_lb_res_pk_accel <- loo(bmm_lb_res_pk_accel)
+loo_bmm_lb_control_entropy <- loo(bmm_lb_control_entropy)
+
+loo_bmm_lb_x_rms_ratio <- loo(bmm_lb_x_rms_ratio)
+loo_bmm_lb_y_rms_ratio <- loo(bmm_lb_y_rms_ratio)
+loo_bmm_lb_z_rms_ratio <- loo(bmm_lb_z_rms_ratio)
+```
+
+#### Estimated Marginal Means & Mean Diff
+
+```{r}
+#| label: EMM & Pairs (Mean Diff)
 
 em_tb_res_pk_accel <- emmeans(bmm_tb_res_pk_accel, ~ run_type, level = 0.89)
 em_lb_res_pk_accel <- emmeans(bmm_lb_res_pk_accel, ~ run_type, level = 0.89)
-```
+em_lb_control_entropy <- emmeans(bmm_lb_control_entropy, ~ run_type, level = 0.89)
 
-```{r}
-#| label: Mean Diff 
+em_lb_x_rms_ratio <- emmeans(bmm_lb_x_rms_ratio, ~ run_type, level = 0.89)
+em_lb_y_rms_ratio <- emmeans(bmm_lb_y_rms_ratio, ~ run_type, level = 0.89)
+em_lb_z_rms_ratio <- emmeans(bmm_lb_z_rms_ratio, ~ run_type, level = 0.89)
 
 diff_em_tb_res_pk_accel <- pairs(em_tb_res_pk_accel)
 diff_em_lb_res_pk_accel <- pairs(em_lb_res_pk_accel)
+diff_em_lb_control_entropy <- pairs(em_lb_control_entropy)
+
+diff_em_lb_x_rms_ratio <- pairs(em_lb_x_rms_ratio)
+diff_em_lb_y_rms_ratio <- pairs(em_lb_y_rms_ratio)
+diff_em_lb_z_rms_ratio <- pairs(em_lb_z_rms_ratio)
+```
+
+#### Probability of Direction (pd)
+
+From [`bayestestR`](https://easystats.github.io/bayestestR/reference/p_direction.html):
+
+This can be interpreted as the probability that a parameter (described by its posterior distribution) is strictly positive or negative (whichever is the most probable). Although differently expressed, this index is fairly similar (i.e., is strongly correlated) to the frequentist p-value.
+
+```{r}
+#| label: Probability of Direction (pd)
+
+pd_tb_res_pk_accel <- bayestestR::p_direction(diff_em_tb_res_pk_accel)
+pd_lb_res_pk_accel <- bayestestR::p_direction(diff_em_lb_res_pk_accel)
+pd_lb_control_entropy <- bayestestR::p_direction(diff_em_lb_control_entropy)
+
+pd_lb_x_rms_ratio <- bayestestR::p_direction(diff_em_lb_x_rms_ratio)
+pd_lb_y_rms_ratio <- bayestestR::p_direction(diff_em_lb_y_rms_ratio)
+pd_lb_z_rms_ratio <- bayestestR::p_direction(diff_em_lb_z_rms_ratio)
+```
+
+#### Practical Significance (ps)
+
+From [`bayestestR`](https://easystats.github.io/bayestestR/reference/p_significance.html#:~:text=p_significance()%20returns%20the%20proportion,value%20being%20outside%20the%20ROPE.)`:`
+
+`p_significance()` returns the proportion of a probability distribution (`x`) that is outside a certain range (the negligible effect, or ROPE, see argument `threshold`). If there are values of the distribution both below and above the ROPE, `p_significance()` returns the higher probability of a value being outside the ROPE. Typically, this value should be larger than 0.5 to indicate practical significance. However, if the range of the negligible effect is rather large compared to the range of the probability distribution `x`, `p_significance()` will be less than 0.5, which indicates no clear practical significance.
+
+```{r}
+#| label: CV Thresholds for Each Variable
+
+cv_thres_tb_res_pk_accel <- em_tb_res_pk_accel@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "tb_res_pk_accel_g") %>%
+  pull(cv)
+
+cv_thres_lb_res_pk_accel <- em_lb_res_pk_accel@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "lb_res_pk_accel_g") %>%
+  pull(cv)
+
+cv_thres_lb_control_entropy <- em_lb_control_entropy@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "lb_control_entropy") %>%
+  pull(cv)
+
+cv_thres_lb_x_rms_ratio <- em_lb_x_rms_ratio@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "lb_x_rms_ratio") %>%
+  pull(cv)
+
+cv_thres_lb_y_rms_ratio <- em_lb_y_rms_ratio@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "lb_y_rms_ratio") %>%
+  pull(cv)
+
+cv_thres_lb_z_rms_ratio <- em_lb_z_rms_ratio@bhat[1] * lt_wk_mean_cov %>%
+  filter(variable == "lb_z_rms_ratio") %>%
+  pull(cv)
 ```
 
 ```{r}
+#| label: Practical Significance (ps)
 
-bayestestR::p_direction(diff_em_tb_res_pk_accel)
+ps_tb_res_pk_accel <- bayestestR::p_significance(diff_em_tb_res_pk_accel, threshold = cv_thres_tb_res_pk_accel) 
+ps_lb_res_pk_accel <- bayestestR::p_significance(diff_em_lb_res_pk_accel, threshold = cv_thres_lb_res_pk_accel) 
+ps_lb_control_entropy <- bayestestR::p_significance(diff_em_lb_control_entropy, threshold = cv_thres_lb_control_entropy)
+
+ps_lb_x_rms_ratio <- bayestestR::p_significance(diff_em_lb_x_rms_ratio, threshold = cv_thres_lb_x_rms_ratio)
+ps_lb_y_rms_ratio <- bayestestR::p_significance(diff_em_lb_y_rms_ratio, threshold = cv_thres_lb_y_rms_ratio)
+ps_lb_z_rms_ratio <- bayestestR::p_significance(diff_em_lb_z_rms_ratio, threshold = cv_thres_lb_z_rms_ratio)
 ```
 
-```{r}
-
-bayestestR::p_direction(diff_em_lb_res_pk_accel)
-```
-
-```{r}
-
-bayestestR::p_significance(diff_em_tb_res_pk_accel, threshold = 0.7989317) 
-```
-
-```{r}
-
-bayestestR::p_significance(diff_em_lb_res_pk_accel, threshold = 0.4080071) 
-```
+### Individual-Level Analysis

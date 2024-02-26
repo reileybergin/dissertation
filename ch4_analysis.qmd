@@ -87,10 +87,9 @@ write_or_append_xlsx <- function(dataframe, filename, sheetName, row.names=FALSE
   writeData(wb, sheetName, dataframe, rowNames=row.names)
   saveWorkbook(wb, filename, overwrite = TRUE)
 }
-
 ```
 
-### Coefficient of variation (CV) during light week
+### Coefficient of variation (CV)
 
 The CV was calculated for each subject across the 4 light days. The mean CV for each variable was calculated across subjects.
 
@@ -118,6 +117,37 @@ lt_wk_mean_cov <- lt_wk_stats  %>%
     cv_per = round(cv*100, 2)
   ) %>%
   ungroup() 
+
+lt_wk <- full_dataset %>%
+  filter(str_starts(run_type, "LD") & run_type != "LD5")
+```
+
+```{r}
+#| label: Calc CoV for light day and heavy d1 (what is used as baseline)
+
+# Just wanted to compare this to variation of in light week
+
+two_day <- full_dataset %>%
+  filter(run_type %in% c("LD5", "HD1"))
+
+# Calculate mean, sd, and CoV for each subject and variable
+two_day_stats <- two_day %>%
+  group_by(sub_id, variable) %>%
+  summarize(
+    mean = mean(value, na.rm = TRUE),
+    sd = sd(value, na.rm = TRUE),
+    cv = sd(value, na.rm = TRUE) / mean(value, na.rm = TRUE), 
+    cv_per = round(cv*100, 2)
+  ) %>%
+  ungroup()
+
+two_day_mean_cov <- two_day_stats  %>%
+  group_by(variable) %>%
+  summarize(
+    cv = mean(cv, na.rm = TRUE), 
+    cv_per = round(cv*100, 2)
+  ) %>%
+  ungroup() 
 ```
 
 ```{r}
@@ -125,7 +155,7 @@ lt_wk_mean_cov <- lt_wk_stats  %>%
 
 # variables: tb_res_pk_accel_g, lb_res_pk_accel_g, lb_control_entropy, lb_x_rms_ratio, lb_y_rms_ratio, lb_z_rms_ratio
 
-# NOTE: no highg data for sub001 and D4 tibia for sub014
+# NOTE on missing data: no tibia for sub001, no tibia for D4 for sub014
 
 lt_wk  %>%
   filter(variable == "lb_x_rms_ratio") %>%
@@ -191,6 +221,8 @@ df_lb_z_rms_ratio <- model_data %>%
 #| label: Plot BAS to D5
 
 # variables: tb_res_pk_accel_g, lb_res_pk_accel_g, lb_control_entropy, lb_x_rms_ratio, lb_y_rms_ratio, lb_z_rms_ratio
+
+# NOTE on missing data: no tibia for sub001, no back D3 sub001, no tibia D2 for sub005
 
 model_data %>%
   filter(variable == "lb_x_rms_ratio") %>%
@@ -310,14 +342,14 @@ bmm_lb_z_rms_ratio <-
 ```{r}
 #| label: Rhat Check
 
-model_to_check <- bmm_lb_z_rms_ratio
+model_to_check <- bmm_lb_res_pk_accel
 rhat(model_to_check)
 ```
 
 ```{r}
 #| label: Posterior Predictive Checks
 
-model_to_check <- bmm_lb_z_rms_ratio
+model_to_check <- bmm_lb_res_pk_accel
 
 pp_check(model_to_check, ndraws = 50)
 pp_check(model_to_check, "stat")
@@ -341,18 +373,18 @@ loo_bmm_lb_z_rms_ratio <- loo(bmm_lb_z_rms_ratio)
 ```{r}
 #| label: EMM & Pairs (Mean Diff)
 
+# emm
 em_tb_res_pk_accel <- emmeans(bmm_tb_res_pk_accel, ~ run_type, level = 0.89)
 em_lb_res_pk_accel <- emmeans(bmm_lb_res_pk_accel, ~ run_type, level = 0.89)
 em_lb_control_entropy <- emmeans(bmm_lb_control_entropy, ~ run_type, level = 0.89)
-
 em_lb_x_rms_ratio <- emmeans(bmm_lb_x_rms_ratio, ~ run_type, level = 0.89)
 em_lb_y_rms_ratio <- emmeans(bmm_lb_y_rms_ratio, ~ run_type, level = 0.89)
 em_lb_z_rms_ratio <- emmeans(bmm_lb_z_rms_ratio, ~ run_type, level = 0.89)
 
+# diff
 diff_em_tb_res_pk_accel <- pairs(em_tb_res_pk_accel)
 diff_em_lb_res_pk_accel <- pairs(em_lb_res_pk_accel)
 diff_em_lb_control_entropy <- pairs(em_lb_control_entropy)
-
 diff_em_lb_x_rms_ratio <- pairs(em_lb_x_rms_ratio)
 diff_em_lb_y_rms_ratio <- pairs(em_lb_y_rms_ratio)
 diff_em_lb_z_rms_ratio <- pairs(em_lb_z_rms_ratio)
@@ -465,3 +497,61 @@ write_or_append_xlsx(ps_lb_z_rms_ratio, "ch.4_results/lb_z_rms_ratio.xlsx", "p_p
 ```
 
 ### Individual-Level Analysis
+
+The goal here is to determine if subjects changes outside of their CV.
+
+```{r}
+#| label: Percent Change from Baseline
+
+# Calculating percent change relative to BAS
+per_chg_from_bas <- model_data %>%
+  group_by(sub_id, variable) %>%
+  spread(key = run_type, value = value) %>%
+  mutate(across(c(HD2, HD3, HD4, HD5), ~(. - BAS) / BAS * 100, .names = "{.col}_per_chg")) %>%
+  select(sub_id, variable, ends_with("per_chg")) %>%
+  gather(key = "run_type", value = "per_chg", -sub_id, -variable) %>%
+  mutate(run_type = str_replace(run_type, "_per_chg", "")) %>%
+  mutate(per_chg_abs = abs(per_chg)) %>%
+  select(sub_id, run_type, variable, per_chg, per_chg_abs)
+
+# Joing table with light week stats table
+per_chg_from_bas <- per_chg_from_bas %>%
+  left_join(lt_wk_stats, by = c("sub_id", "variable")) %>%
+  select(-all_of(c("mean", "sd", "cv")))
+
+# Determine if change from baseline is outside of CV from light week
+per_chg_from_bas <- per_chg_from_bas %>%
+    mutate(
+    outside_cv = if_else(per_chg_abs > cv_per, 1, 0),
+    outside_cov_increase = if_else(per_chg > 0 & per_chg_abs > cv_per, 1, 0), 
+    outside_cov_decrease = if_else(per_chg < 0 & per_chg_abs > cv_per, 1, 0)  
+  )
+
+# Summary table for counts of variables outside CV
+summary_outside_cv <- per_chg_from_bas %>%
+  group_by(variable) %>%
+  summarize(
+    count_outside_cv = sum(outside_cv, na.rm = TRUE),
+    count_outside_cv_increase = sum(outside_cov_increase, na.rm = TRUE),
+    count_outside_cv_decrease = sum(outside_cov_decrease, na.rm = TRUE)
+  )
+
+# Summary table for counts of variables outside CV by run_type
+summary_run_type_outside_cv <- per_chg_from_bas %>%
+  group_by(variable, run_type) %>%
+  summarize(
+    count_outside_cv = sum(outside_cv, na.rm = TRUE),
+    count_outside_cv_increase = sum(outside_cov_increase, na.rm = TRUE),
+    count_outside_cv_decrease = sum(outside_cov_decrease, na.rm = TRUE)
+  )
+```
+
+#### Export Results for Individual Analysis
+
+```{r}
+#| label: Export Results for Individual Analysis
+
+write_or_append_xlsx(per_chg_from_bas, "ch.4_results/indiv_changes.xlsx", "per_chg_from_bas", FALSE)
+write_or_append_xlsx(summary_outside_cv, "ch.4_results/indiv_changes.xlsx", "outside_cv", FALSE)
+write_or_append_xlsx(summary_run_type_outside_cv, "ch.4_results/indiv_changes.xlsx", "run_type_outside_cv", FALSE)
+```

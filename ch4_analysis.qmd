@@ -29,6 +29,7 @@ library(brms)
 library(easystats)
 library(emmeans)
 library(openxlsx)
+library(ggalt)
 
 theme_set(theme_bw())
 ```
@@ -36,7 +37,7 @@ theme_set(theme_bw())
 ```{r}
 #| label: Data Prep
 
-full_dataset <- read_csv("data/ch.4_data.csv") %>%
+full_dataset <- read_csv("data/ch.4_imu_data.csv") %>%
   
   # Remove the two subjects who did not complete heavy week 
   filter(sub_id != "run007", sub_id != "run008") %>%
@@ -224,8 +225,10 @@ df_lb_z_rms_ratio <- model_data %>%
 
 # NOTE on missing data: no tibia for sub001, no back D3 sub001, no tibia D2 for sub005
 
+variable_to_plot = "lb_res_pk_accel_g"
+
 model_data %>%
-  filter(variable == "lb_x_rms_ratio") %>%
+  filter(variable == variable_to_plot) %>%
   ggplot(aes(x = run_type, y = value, group = sub_id)) +
   geom_line(linewidth = 0.75) +
   geom_point(shape = 21,
@@ -234,9 +237,31 @@ model_data %>%
              fill = "white") +
   labs(x = "",
        y = "",
-       title = "",
+       title = variable_to_plot,
        subtitle = "") +
   facet_wrap(~sub_id) 
+
+# Define a custom color palette
+custom_palette <- c("#4b92c3", "#ff983e", "#56b356", "#de5253",
+                    "#a985ca", "#a3776f", "#e892ce", "#989898",
+                    "#c9ca4e", "#45cbd8")
+
+
+model_data %>%
+  filter(variable == variable_to_plot) %>%
+  ggplot(aes(x = run_type, y = value, group = sub_id)) +
+  geom_line(aes(color = as.factor(sub_id)), size = 1) +
+  geom_point(shape = 21, size = 3, aes(fill = as.factor(sub_id)), color = "black") +
+  scale_color_manual(values = custom_palette, name = "Subject ID") +
+  scale_fill_manual(values = custom_palette) +
+  labs(x = "",
+       y = "",
+       title = variable_to_plot,
+       subtitle = "",
+       color = "Subject ID",
+       fill = "Subject ID") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
 ```
 
 #### Linear Mixed Model (LMM)
@@ -390,11 +415,65 @@ diff_em_lb_y_rms_ratio <- pairs(em_lb_y_rms_ratio)
 diff_em_lb_z_rms_ratio <- pairs(em_lb_z_rms_ratio)
 ```
 
+```{r}
+#| label: Plot means over time
+
+plot(estimate_means(bmm_tb_res_pk_accel, at = "run_type", ci = 0.89))
+plot(estimate_means(bmm_lb_res_pk_accel, at = "run_type", ci = 0.89))
+plot(estimate_means(bmm_lb_control_entropy, at = "run_type", ci = 0.89))
+plot(estimate_means(bmm_lb_x_rms_ratio, at = "run_type", ci = 0.89))
+plot(estimate_means(bmm_lb_x_rms_ratio, at = "run_type", ci = 0.89))
+plot(estimate_means(bmm_lb_x_rms_ratio, at = "run_type", ci = 0.89))
+```
+
+```{r}
+#| label: Plot diffs
+
+plot(diff_em_tb_res_pk_accel)
+plot(diff_em_lb_res_pk_accel)
+plot(diff_em_lb_control_entropy)
+plot(diff_em_lb_x_rms_ratio)
+plot(diff_em_lb_y_rms_ratio)
+plot(diff_em_lb_z_rms_ratio)
+```
+
+```{r}
+#| label: Plot means and diffs
+
+#NOTE: the cone things are the diffs for *each* pairwise comparision
+
+plot(estimate_contrasts(bmm_tb_res_pk_accel,contrast = "run_type"), estimate_means(bmm_tb_res_pk_accel, at = "run_type", ci = 0.89)) + theme_modern()
+
+plot(estimate_contrasts(bmm_lb_res_pk_accel,contrast = "run_type"), estimate_means(bmm_lb_res_pk_accel, at = "run_type", ci = 0.89)) + theme_modern()
+
+plot(estimate_contrasts(bmm_lb_control_entropy,contrast = "run_type"), estimate_means(bmm_lb_control_entropy, at = "run_type", ci = 0.89)) + theme_modern()
+
+plot(estimate_contrasts(bmm_lb_x_rms_ratio,contrast = "run_type"), estimate_means(bmm_lb_x_rms_ratio, at = "run_type", ci = 0.89)) + theme_modern()
+
+plot(estimate_contrasts(bmm_lb_y_rms_ratio,contrast = "run_type"), estimate_means(bmm_lb_y_rms_ratio, at = "run_type", ci = 0.89)) + theme_modern()
+
+plot(estimate_contrasts(bmm_lb_z_rms_ratio,contrast = "run_type"), estimate_means(bmm_lb_z_rms_ratio, at = "run_type", ci = 0.89)) + theme_modern()
+```
+
 #### Probability of Direction (pd)
 
 From [`bayestestR`](https://easystats.github.io/bayestestR/reference/p_direction.html):
 
-This can be interpreted as the probability that a parameter (described by its posterior distribution) is strictly positive or negative (whichever is the most probable). Although differently expressed, this index is fairly similar (i.e., is strongly correlated) to the frequentist p-value.
+This can be interpreted as the probability that a parameter (described by its posterior distribution) is strictly positive or negative (whichever is the most probable). In other words, it represents the certainty associated with the most probable direction (positive or negative) of the effect.
+
+Moreover, it is strongly correlated with the frequentist **p*-value, and can thus be used to draw parallels and give some reference to readers non-familiar with Bayesian statistics. A two-sided* p*-value of respectively `.1`, `.05`, `.01` and `.001` correspond approximately to a* pd**\* of 95%, 97.5%, 99.5% and 99.95%.
+
+Thus, for convenience, we suggest the following reference values as an interpretation helpers:
+
+-   *pd* **\<= 95%** \~ *p* \> .1: uncertain
+
+-   *pd* **\> 95%** \~ *p* \< .1: possibly existing
+
+-   *pd* **\> 97%**: likely existing
+
+-   *pd* **\> 99%**: probably existing
+
+-   *pd* **\> 99.9%**: certainly existing
 
 ```{r}
 #| label: Probability of Direction (pd)
@@ -402,7 +481,6 @@ This can be interpreted as the probability that a parameter (described by its po
 pd_tb_res_pk_accel <- bayestestR::p_direction(diff_em_tb_res_pk_accel)
 pd_lb_res_pk_accel <- bayestestR::p_direction(diff_em_lb_res_pk_accel)
 pd_lb_control_entropy <- bayestestR::p_direction(diff_em_lb_control_entropy)
-
 pd_lb_x_rms_ratio <- bayestestR::p_direction(diff_em_lb_x_rms_ratio)
 pd_lb_y_rms_ratio <- bayestestR::p_direction(diff_em_lb_y_rms_ratio)
 pd_lb_z_rms_ratio <- bayestestR::p_direction(diff_em_lb_z_rms_ratio)
@@ -448,7 +526,6 @@ cv_thres_lb_z_rms_ratio <- em_lb_z_rms_ratio@bhat[1] * lt_wk_mean_cov %>%
 ps_tb_res_pk_accel <- bayestestR::p_significance(diff_em_tb_res_pk_accel, threshold = cv_thres_tb_res_pk_accel) 
 ps_lb_res_pk_accel <- bayestestR::p_significance(diff_em_lb_res_pk_accel, threshold = cv_thres_lb_res_pk_accel) 
 ps_lb_control_entropy <- bayestestR::p_significance(diff_em_lb_control_entropy, threshold = cv_thres_lb_control_entropy)
-
 ps_lb_x_rms_ratio <- bayestestR::p_significance(diff_em_lb_x_rms_ratio, threshold = cv_thres_lb_x_rms_ratio)
 ps_lb_y_rms_ratio <- bayestestR::p_significance(diff_em_lb_y_rms_ratio, threshold = cv_thres_lb_y_rms_ratio)
 ps_lb_z_rms_ratio <- bayestestR::p_significance(diff_em_lb_z_rms_ratio, threshold = cv_thres_lb_z_rms_ratio)
@@ -554,4 +631,78 @@ summary_run_type_outside_cv <- per_chg_from_bas %>%
 write_or_append_xlsx(per_chg_from_bas, "ch.4_results/indiv_changes.xlsx", "per_chg_from_bas", FALSE)
 write_or_append_xlsx(summary_outside_cv, "ch.4_results/indiv_changes.xlsx", "outside_cv", FALSE)
 write_or_append_xlsx(summary_run_type_outside_cv, "ch.4_results/indiv_changes.xlsx", "run_type_outside_cv", FALSE)
+```
+
+### Two Mile Time Trial 
+
+Compare time trial times following 4 days of light training load vs 4 days of heavy training load using a paired t-test.
+
+```{r}
+#| label: Data Prep 2mileTT
+
+two_mile_times <- read_csv("data/ch.4_two_mile_times.csv") %>%
+  select(sub_id, post_light_sec, post_heavy_sec) %>%
+  mutate(diff = post_heavy_sec - post_light_sec)
+```
+
+```{r}
+#| label: PLot 2mileTT
+
+ggplot(two_mile_times, aes(x = post_light_sec, xend = post_heavy_sec, y = sub_id)) +
+  geom_dumbbell(size = 2.5, colour = "#5D9EC3", colour_x = "#E69F00", colour_xend = "#56B4E9") +
+  labs(x = "Seconds", y = "Sub ID", title = "Post Light vs. Post Heavy 2MileTT") +
+  theme_minimal()
+```
+
+#### Frequentist Paired T-Test
+
+```{r}
+#| label: Compare 2mileTT w/ Freq T-Test 
+
+ttest_two_mile <- t.test(
+    x = two_mile_times$post_light_sec,
+    y = two_mile_times$post_heavy_sec,
+    paired = TRUE)
+
+es_freq_two_mile <- cohens_d(    
+    x = two_mile_times$post_light_sec,
+    y = two_mile_times$post_heavy_sec,
+    paired = TRUE)
+```
+
+#### **Bayesian Paried T-Test**
+
+Bayes Factor Interpretation ([Raftery 1995](https://www.jstor.org/stable/271063))
+
+-   **BF = 1** - No evidence
+
+-   **1 \< BF \<= 3** - Weak
+
+-   **3 \< BF \<= 20** - Positive
+
+-   **20 \< BF \<= 150** - Strong
+
+-   **BF \> 150** - Very strong
+
+```{r}
+#| label: Compare 2mileTT w/ Bayes T-Test 
+
+bf_ttest_two_mile <- describe_posterior(BayesFactor::ttestBF(
+    x = two_mile_times$post_light_sec,
+    y = two_mile_times$post_heavy_sec,
+    paired = TRUE), ci = 0.89)
+
+es_bayes_two_mile <- effectsize(BayesFactor::ttestBF(
+    x = two_mile_times$post_light_sec,
+    y = two_mile_times$post_heavy_sec,
+    paired = TRUE), type = "d", ci = 0.89)
+```
+
+#### Export Results for 2MileTT
+
+```{r}
+#| label: Export Results for 2MileTT
+
+write_or_append_xlsx(bf_ttest_two_mile, "ch.4_results/two_mile_tt.xlsx", "bayes_ttest", FALSE)
+write_or_append_xlsx(es_bayes_two_mile, "ch.4_results/two_mile_tt.xlsx", "bayes_cohenD", FALSE)
 ```

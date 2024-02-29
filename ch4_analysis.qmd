@@ -37,7 +37,7 @@ theme_set(theme_bw())
 ```{r}
 #| label: Data Prep
 
-full_dataset <- read_csv("data/ch.4_imu_data.csv") %>%
+imu_data <- read_csv("data/ch.4_imu_data.csv") %>%
   
   # Remove the two subjects who did not complete heavy week 
   filter(sub_id != "run007", sub_id != "run008") %>%
@@ -54,7 +54,7 @@ full_dataset <- read_csv("data/ch.4_imu_data.csv") %>%
       "res_g_avg_peak_back_1125hz" = "lb_res_pk_accel_g"))) 
   
 # Calculate avg for left and right tibia
-rt_lt_avg <- full_dataset %>%
+rt_lt_avg <- imu_data %>%
   filter(variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
   group_by(sub_id, run_type) %>%
   
@@ -67,7 +67,7 @@ rt_lt_avg <- full_dataset %>%
   select(sub_id, run_type, variable, value)
 
 # Append the original dataset
-full_dataset <- bind_rows(full_dataset, rt_lt_avg) %>%
+imu_data <- bind_rows(imu_data, rt_lt_avg) %>%
   filter(!variable %in% c("lt_res_pk_accel_g", "rt_res_pk_accel_g")) %>%
   arrange(sub_id, run_type, variable)
 
@@ -97,7 +97,7 @@ The CV was calculated for each subject across the 4 light days. The mean CV for 
 ```{r}
 #| label: Calc CoV During Light Week
 
-lt_wk <- full_dataset %>%
+lt_wk <- imu_data %>%
   filter(str_starts(run_type, "LD") & run_type != "LD5")
 
 # Calculate mean, sd, and CoV for each subject and variable
@@ -119,7 +119,7 @@ lt_wk_mean_cov <- lt_wk_stats  %>%
   ) %>%
   ungroup() 
 
-lt_wk <- full_dataset %>%
+lt_wk <- imu_data %>%
   filter(str_starts(run_type, "LD") & run_type != "LD5")
 ```
 
@@ -128,7 +128,7 @@ lt_wk <- full_dataset %>%
 
 # Just wanted to compare this to variation of in light week
 
-two_day <- full_dataset %>%
+two_day <- imu_data %>%
   filter(run_type %in% c("LD5", "HD1"))
 
 # Calculate mean, sd, and CoV for each subject and variable
@@ -179,7 +179,7 @@ lt_wk  %>%
 #| label: Prep Data for Model
 
 # Calculate average values for LD5 and HD1, and label them as BAS
-bas_avg <- full_dataset %>%
+bas_avg <- imu_data %>%
   filter(run_type %in% c("LD5", "HD1")) %>%
   group_by(sub_id, variable) %>%
   summarize(mean_value = mean(value, na.rm = TRUE), .groups = 'drop') %>%
@@ -188,7 +188,7 @@ bas_avg <- full_dataset %>%
   select(sub_id, run_type, variable, value)
 
 # Append the BAS averages back to the original dataset
-model_data <- bind_rows(full_dataset, bas_avg) %>%
+model_data <- bind_rows(imu_data, bas_avg) %>%
   arrange(sub_id, run_type, variable)
 rm(bas_avg)
 
@@ -225,7 +225,7 @@ df_lb_z_rms_ratio <- model_data %>%
 
 # NOTE on missing data: no tibia for sub001, no back D3 sub001, no tibia D2 for sub005
 
-variable_to_plot = "lb_res_pk_accel_g"
+variable_to_plot = "tb_res_pk_accel_g"
 
 model_data %>%
   filter(variable == variable_to_plot) %>%
@@ -251,7 +251,7 @@ model_data %>%
   filter(variable == variable_to_plot) %>%
   ggplot(aes(x = run_type, y = value, group = sub_id)) +
   geom_line(aes(color = as.factor(sub_id)), size = 1) +
-  geom_point(shape = 21, size = 3, aes(fill = as.factor(sub_id)), color = "black") +
+  geom_point(shape = 21, size = 3, aes(fill = as.factor(sub_id))) +
   scale_color_manual(values = custom_palette, name = "Subject ID") +
   scale_fill_manual(values = custom_palette) +
   labs(x = "",
@@ -633,7 +633,7 @@ write_or_append_xlsx(summary_outside_cv, "ch.4_results/indiv_changes.xlsx", "out
 write_or_append_xlsx(summary_run_type_outside_cv, "ch.4_results/indiv_changes.xlsx", "run_type_outside_cv", FALSE)
 ```
 
-### Two Mile Time Trial 
+### Two Mile Time Trial
 
 Compare time trial times following 4 days of light training load vs 4 days of heavy training load using a paired t-test.
 
@@ -706,3 +706,126 @@ es_bayes_two_mile <- effectsize(BayesFactor::ttestBF(
 write_or_append_xlsx(bf_ttest_two_mile, "ch.4_results/two_mile_tt.xlsx", "bayes_ttest", FALSE)
 write_or_append_xlsx(es_bayes_two_mile, "ch.4_results/two_mile_tt.xlsx", "bayes_cohenD", FALSE)
 ```
+
+### Edwards TRIMP (eTRIMP)
+
+Comapre eTRIMP across the 4 light and 4 heavy days.
+
+```{r}
+#| label: Data Prep eTRIMP
+
+etrimp <- read_csv("data/ch.4_etrimp.csv") %>%
+  select(sub_id, run_type, etrimp) %>%
+  mutate(day_type = if_else(str_starts(run_type, "L"), "light_days", "heavy_days")) %>%
+  group_by(sub_id, day_type) %>%
+  summarise(mean_etrimp = mean(etrimp, na.rm = TRUE)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = day_type, values_from = mean_etrimp)
+```
+
+```{r}
+#| label: Compare eTRIMP w/ Freq T-Test 
+
+ttest_etrimp <- t.test(
+    x = etrimp$heavy_days,
+    y = etrimp$light_days,
+    paired = TRUE)
+
+es_etrimp <- cohens_d(
+    x = etrimp$heavy_days,
+    y = etrimp$light_days,
+    paired = TRUE)
+
+interpret_cohens_d(es_etrimp)
+```
+
+```{r}
+#| label: Compare eTRIMP w/ Bayes T-Test 
+
+bf_ttest_etrimp <- describe_posterior(BayesFactor::ttestBF(
+    x = etrimp$heavy_days,
+    y = etrimp$light_days,
+    paired = TRUE), ci = 0.89)
+
+es_bayes_etrimp <- effectsize(BayesFactor::ttestBF(
+    x = etrimp$heavy_days,
+    y = etrimp$light_days,
+    paired = TRUE), type = "d", ci = 0.89)
+
+interpret_cohens_d(es_bayes_etrimp)
+```
+
+```{r}
+#| label: Export Results for eTRIMP
+
+write_or_append_xlsx(etrimp, "ch.4_results/etrimp.xlsx", "data", FALSE)
+write_or_append_xlsx(bf_ttest_etrimp, "ch.4_results/etrimp.xlsx", "bayes_ttest", FALSE)
+write_or_append_xlsx(es_bayes_etrimp, "ch.4_results/etrimp.xlsx", "bayes_cohenD", FALSE)
+```
+
+### RPE
+
+Compare RPE across 4 light days and 4 heavy days
+
+```{r}
+#| label: Data Prep RPE
+
+rpe_light_wk <- read_csv("data/ch.4_rpe_light_wk.csv") %>%
+  select(sub_id, rpe) %>%
+  mutate(week = "light")
+
+rpe_heavy_wk <- read_csv("data/ch.4_rpe_heavy_wk.csv") %>%
+  rowwise() %>%
+  mutate(rpe = round(mean(c_across(starts_with("rpe")), na.rm = TRUE))) %>%
+  ungroup() %>%
+  select(sub_id, rpe) %>%
+  mutate(week = "heavy")
+
+rpe <- bind_rows(rpe_light_wk, rpe_heavy_wk) %>%
+  group_by(sub_id, week) %>%
+  summarise(mean_rpe = mean(rpe, na.rm = TRUE)) %>%
+  ungroup() %>%
+  pivot_wider(names_from = week, values_from = mean_rpe)
+```
+
+```{r}
+#| label: Compare RPE w/ Freq T-Test 
+
+ttest_rpe <- t.test(
+    x = rpe$heavy,
+    y = rpe$light,
+    paired = TRUE)
+
+es_rpe <- cohens_d(
+    x = rpe$heavy,
+    y = rpe$light,
+    paired = TRUE)
+
+interpret_cohens_d(es_rpe)
+```
+
+```{r}
+#| label: Compare RPE w/ Bayes T-Test 
+
+bf_ttest_rpe <- describe_posterior(BayesFactor::ttestBF(
+    x = rpe$heavy,
+    y = rpe$light,
+    paired = TRUE), ci = 0.89)
+
+es_bayes_rpe <- effectsize(BayesFactor::ttestBF(
+    x = rpe$heavy,
+    y = rpe$light,
+    paired = TRUE), type = "d", ci = 0.89)
+
+interpret_cohens_d(es_bayes_rpe)
+```
+
+```{r}
+#| label: Export Results for RPE
+
+write_or_append_xlsx(rpe, "ch.4_results/rpe.xlsx", "data", FALSE)
+write_or_append_xlsx(bf_ttest_rpe, "ch.4_results/rpe.xlsx", "bayes_ttest", FALSE)
+write_or_append_xlsx(es_bayes_rpe, "ch.4_results/rpe.xlsx", "bayes_cohenD", FALSE)
+```
+
+### DALDA

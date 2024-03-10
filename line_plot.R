@@ -4,6 +4,7 @@ library(tidyverse)
 library(readr)
 library(viridis)
 library(RColorBrewer)
+library(datawizard)
 
 # data prep ----
 
@@ -68,33 +69,79 @@ model_data <- model_data %>%
     sub_id = factor(sub_id)
   )
 
+# Plot data 
+
+plot_data <- model_data %>%
+  mutate(
+    # Update sub_id
+    sub_id = str_replace_all(sub_id, c(
+      "run001" = "Sub01",
+      "run002" = "Sub02",
+      "run004" = "Sub03",
+      "run005" = "Sub04",
+      "run006" = "Sub05",
+      "run009" = "Sub06",
+      "run010" = "Sub07",
+      "run012" = "Sub08",
+      "run013" = "Sub09",
+      "run014" = "Sub10"
+    )),
+    
+    # Update variable names
+    variable = str_replace_all(variable, c(
+      "tb_res_pk_accel_g" = "Tibia Pk Accel",
+      "lb_res_pk_accel_g" = "LB Pk Accel",
+      "lb_x_rms_ratio" = "RMS Ratio X",
+      "lb_y_rms_ratio" = "RMS Ratio Y",
+      "lb_z_rms_ratio" = "RMS Ratio Z", 
+      "lb_control_entropy" = "Control Entropy"
+    )),
+    
+    # Update variable order
+    variable = factor(variable, levels = c(
+      "Tibia Pk Accel",
+      "LB Pk Accel",
+      "RMS Ratio X",
+      "RMS Ratio Y",
+      "RMS Ratio Z",
+      "Control Entropy"
+    ))
+  )
+
+
+# Standardize values for each variable
+
+plot_data <- plot_data %>%
+  group_by(variable) %>%
+  mutate(value = as.numeric(standardize(value))) %>%
+  ungroup()
+
+
 # ploting ----
 
-
-ggplot(model_data, aes(x = run_type, y = value, group = sub_id, color = sub_id)) +
-  geom_line() +  # The aes color mapping is applied to lines
-  geom_point() +  # The aes color mapping is applied to points as well
-  
-  # Create a facet grid by variable with free y scales
-  facet_grid(rows = vars(variable), scales = "free_y") + 
-  
-  theme_bw() +  # Apply the black and white theme
-  
-  theme(legend.position = "bottom",  # Place legend at the bottom
+plot_1 <- ggplot(plot_data, aes(x = run_type, y = value, group = sub_id, color = sub_id)) +
+  geom_line(linewidth=0.65, alpha=0.75) +  # Adjust line width and add transparency
+  geom_point(alpha=0.75) +
+  facet_wrap(~variable, ncol = 2) +  # Use 2 columns for the facets
+  theme_bw() +  
+  theme(legend.position = "right",  # Place legend at the bottom
         legend.title = element_blank(),  # Remove legend title
-        text = element_text(size=12),  # Adjust global text size
+        text = element_text(size=10),  # Adjust global text size
         axis.title = element_text(face="bold"),  # Bold axis titles
-        strip.text.x = element_text(face="bold")) +  # Bold facet labels
-  
+        strip.text.x = element_text(face="bold"),  # Bold facet labels
+        panel.spacing.y = unit(1, "lines"),  # Adjust space between rows
+        panel.spacing.x = unit(1, "lines")) +  # Adjust space between columns
   labs(
     title = "",
     x = "",
     y = "",
   ) +
-  
-  scale_color_brewer(palette = "Paired")  
+  scale_color_brewer(palette = "Paired")
 
+plot_1
 
+# save as PNG 
+ggsave("ch.4_results/plots/plot_1.png", plot = plot_1, width = 8, height = 6, dpi = 300)
 
 
 

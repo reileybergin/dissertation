@@ -829,3 +829,116 @@ write_or_append_xlsx(es_bayes_rpe, "ch.4_results/rpe.xlsx", "bayes_cohenD", FALS
 ```
 
 ### DALDA
+
+The total score represents the count of "worse than normal" responses for Part A (1-9) and Part B (10 - 34).
+
+```{r}
+#| label: Data Prep DALDA
+
+dalda <- read_csv("data/ch.4_dalda.csv") %>%
+  select(-Date) %>%
+  mutate(week = case_when(
+  str_starts(day, "L") ~ "light",
+  str_starts(day, "H") ~ "heavy",
+    TRUE ~ NA_character_  
+  )) %>%
+  select(week, everything())
+
+# part A
+partA <- dalda %>%
+  select(1:3, matches("^[1-9]\\)")) %>%
+  pivot_longer(
+    cols = -c(1:3), 
+    names_to = "question",
+    values_to = "response"
+  )
+  
+# part B
+partB <- dalda %>%
+  select(1:3, matches("^((1[0-9])|(2[0-9])|(3[0-4]))\\)")) %>%
+  pivot_longer(
+    cols = -c(1:3), 
+    names_to = "question",
+    values_to = "response"
+  )
+```
+
+```{r}
+#| label: DALDA Group Tables
+
+grouped_partA <- partA %>%
+  filter(response == "A) Worse than normal") %>%
+  group_by(sub_id, day) %>%
+  summarise(count = n(), .groups = 'drop')
+
+grouped_partB <- partB %>%
+  filter(response == "A) Worse than normal") %>%
+  group_by(sub_id, day) %>%
+  summarise(count = n(), .groups = 'drop')
+```
+
+```{r}
+#| label: DALDA Calculations
+
+partB_light <- partB %>%
+  filter(week == "light") %>%
+  filter(response == "A) Worse than normal") %>%
+  select(-c(week, response))
+
+
+partB_heavy <- partB %>%
+  filter(week == "heavy") %>%
+  filter(response == "A) Worse than normal") %>%
+  select(-c(week, response))
+```
+
+```{r}
+
+library(lubridate)
+
+# Assuming df is your data frame
+
+# Step 1: Convert 'day' into a numeric sequence
+df <- partB_light %>%
+  mutate(day_num = as.numeric(sub("LD", "", day))) %>%
+  arrange(sub_id, question, day_num)
+
+# Step 2: Group by 'sub_id' and 'question', then detect consecutive sequences
+df_processed <- df %>%
+  group_by(sub_id, question) %>%
+  mutate(consecutive = day_num - lag(day_num, default = first(day_num)) == 1) %>%
+  group_by(sub_id, question, cumsum(!consecutive)) %>%
+  mutate(streak = row_number()) %>%
+  ungroup() %>%
+  select(-day_num, -consecutive) %>%
+  group_by(sub_id, question) %>%
+  summarise(max_streak = max(streak), .groups = 'drop')
+
+# Step 3: Filter or arrange as needed to find subjects with 3 or more consecutive days of the same response
+df_filtered <- df_processed %>%
+  filter(max_streak >= 3)
+```
+
+```{r}
+# Assuming df is your data frame
+
+# Step 1: Convert 'day' into a numeric sequence
+df <- partB_heavy %>%
+  mutate(day_num = as.numeric(sub("HD", "", day))) %>%
+  arrange(sub_id, question, day_num)
+
+# Step 2: Group by 'sub_id' and 'question', then detect consecutive sequences
+df_processed <- df %>%
+  group_by(sub_id, question) %>%
+  mutate(consecutive = day_num - lag(day_num, default = first(day_num)) == 1) %>%
+  group_by(sub_id, question, cumsum(!consecutive)) %>%
+  mutate(streak = row_number()) %>%
+  ungroup() %>%
+  select(-day_num, -consecutive) %>%
+  group_by(sub_id, question) %>%
+  summarise(max_streak = max(streak), .groups = 'drop')
+
+# Step 3: Filter or arrange as needed to find subjects with 3 or more consecutive days of the same response
+df_filtered_2 <- df_processed %>%
+  filter(max_streak >= 3)
+```

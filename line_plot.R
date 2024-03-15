@@ -87,13 +87,22 @@ plot_data <- model_data %>%
       "run014" = "Sub10"
     )),
     
+    # Update run_type
+    run_type = str_replace_all(run_type, c(
+      "BAS" = "BASE",
+      "HD2" = "HIIT+1",
+      "HD3" = "HIIT+2",
+      "HD4" = "HIIT+3",
+      "HD5" = "HIIT+4"
+    )),
+    
     # Update variable names
     variable = str_replace_all(variable, c(
       "tb_res_pk_accel_g" = "Tibia Pk Accel",
       "lb_res_pk_accel_g" = "LB Pk Accel",
-      "lb_x_rms_ratio" = "RMS Ratio X",
-      "lb_y_rms_ratio" = "RMS Ratio Y",
-      "lb_z_rms_ratio" = "RMS Ratio Z", 
+      "lb_x_rms_ratio" = "RMS Ratio ML",
+      "lb_y_rms_ratio" = "RMS Ratio VT",
+      "lb_z_rms_ratio" = "RMS Ratio AP", 
       "lb_control_entropy" = "Control Entropy"
     )),
     
@@ -101,9 +110,9 @@ plot_data <- model_data %>%
     variable = factor(variable, levels = c(
       "Tibia Pk Accel",
       "LB Pk Accel",
-      "RMS Ratio X",
-      "RMS Ratio Y",
-      "RMS Ratio Z",
+      "RMS Ratio ML",
+      "RMS Ratio VT",
+      "RMS Ratio AP",
       "Control Entropy"
     ))
   )
@@ -119,7 +128,7 @@ plot_data <- plot_data %>%
 
 # ploting ----
 
-plot_1 <- ggplot(plot_data, aes(x = run_type, y = value, group = sub_id, color = sub_id)) +
+plot <- ggplot(plot_data, aes(x = run_type, y = value, group = sub_id, color = sub_id)) +
   geom_line(linewidth=0.65, alpha=0.75) +  # Adjust line width and add transparency
   geom_point(alpha=0.75) +
   facet_wrap(~variable, ncol = 2) +  # Use 2 columns for the facets
@@ -135,13 +144,14 @@ plot_1 <- ggplot(plot_data, aes(x = run_type, y = value, group = sub_id, color =
     title = "",
     x = "",
     y = "",
+    caption = ""
   ) +
   scale_color_brewer(palette = "Paired")
 
-plot_1
+plot
 
 # save as PNG 
-ggsave("ch.4_results/plots/plot_1.png", plot = plot_1, width = 8, height = 6, dpi = 300)
+ggsave("ch.4_results/plots/plot_2.png", plot = plot, width = 8, height = 6, dpi = 300)
 
 
 

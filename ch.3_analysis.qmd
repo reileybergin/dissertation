@@ -974,7 +974,7 @@ validity_walk_data <- read_csv("data/ch.3_validity_data.csv") %>%
 
 ### Pearson Correlation
 
-Using `correlation` from the [easystats](https://github.com/easystats/easystats) package.
+Using [correlation](https://easystats.github.io/correlation/reference/correlation.html) from the [easystats](https://github.com/easystats/easystats) package.
 
 #### Frequentist Approach Only
 
@@ -982,10 +982,10 @@ Using `correlation` from the [easystats](https://github.com/easystats/easystats)
 #| label: Pearson correlation for each combination
 
 # Running
-run_correlations_tbl <- correlation(validity_run_data)
+run_correlations_tbl <- correlation(validity_run_data, p_adjust = "none")
 
 # Walking 
-walk_correlations_tbl <- correlation(validity_walk_data)
+walk_correlations_tbl <- correlation(validity_walk_data, p_adjust = "none")
 ```
 
 ```{r}

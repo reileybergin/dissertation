@@ -20,7 +20,7 @@ editor: visual
 ---
 
 ```{r}
-#| label: Packages & Themes
+#| label: Packages, Themes, Functions
 
 library(tidyverse)
 library(readr)
@@ -30,8 +30,21 @@ library(easystats)
 library(emmeans)
 library(openxlsx)
 library(ggalt)
+library(lubridate) # for DALDA calcs
 
 theme_set(theme_bw())
+
+# Write or append a dataframe to an Excel file as a new sheet
+write_or_append_xlsx <- function(dataframe, filename, sheetName, row.names=FALSE) {
+  if (file.exists(filename)) {
+    wb <- loadWorkbook(filename) # Load the existing workbook
+  } else {
+    wb <- createWorkbook() # Or create a new one if it doesn't exist
+  }
+  addWorksheet(wb, sheetName)
+  writeData(wb, sheetName, dataframe, rowNames=row.names)
+  saveWorkbook(wb, filename, overwrite = TRUE)
+}
 ```
 
 ```{r}
@@ -72,22 +85,6 @@ imu_data <- bind_rows(imu_data, rt_lt_avg) %>%
   arrange(sub_id, run_type, variable)
 
 rm(rt_lt_avg)
-```
-
-```{r}
-#| label: Functions
-
-# Write or append a dataframe to an Excel file as a new sheet
-write_or_append_xlsx <- function(dataframe, filename, sheetName, row.names=FALSE) {
-  if (file.exists(filename)) {
-    wb <- loadWorkbook(filename) # Load the existing workbook
-  } else {
-    wb <- createWorkbook() # Or create a new one if it doesn't exist
-  }
-  addWorksheet(wb, sheetName)
-  writeData(wb, sheetName, dataframe, rowNames=row.names)
-  saveWorkbook(wb, filename, overwrite = TRUE)
-}
 ```
 
 ### Coefficient of variation (CV)
@@ -660,13 +657,13 @@ ggplot(two_mile_times, aes(x = post_light_sec, xend = post_heavy_sec, y = sub_id
 #| label: Compare 2mileTT w/ Freq T-Test 
 
 ttest_two_mile <- t.test(
-    x = two_mile_times$post_light_sec,
-    y = two_mile_times$post_heavy_sec,
+    x = two_mile_times$post_heavy_sec,
+    y = two_mile_times$post_light_sec,
     paired = TRUE)
 
 es_freq_two_mile <- cohens_d(    
-    x = two_mile_times$post_light_sec,
-    y = two_mile_times$post_heavy_sec,
+    x = two_mile_times$post_heavy_sec,
+    y = two_mile_times$post_light_sec,
     paired = TRUE)
 ```
 
@@ -688,13 +685,13 @@ Bayes Factor Interpretation ([Raftery 1995](https://www.jstor.org/stable/271063)
 #| label: Compare 2mileTT w/ Bayes T-Test 
 
 bf_ttest_two_mile <- describe_posterior(BayesFactor::ttestBF(
-    x = two_mile_times$post_light_sec,
-    y = two_mile_times$post_heavy_sec,
+    x = two_mile_times$post_heavy_sec,
+    y = two_mile_times$post_light_sec,
     paired = TRUE), ci = 0.89)
 
 es_bayes_two_mile <- effectsize(BayesFactor::ttestBF(
-    x = two_mile_times$post_light_sec,
-    y = two_mile_times$post_heavy_sec,
+    x = two_mile_times$post_heavy_sec,
+    y = two_mile_times$post_light_sec,
     paired = TRUE), type = "d", ci = 0.89)
 ```
 
@@ -844,7 +841,6 @@ dalda <- read_csv("data/ch.4_dalda.csv") %>%
   )) %>%
   select(week, everything())
 
-# part A
 partA <- dalda %>%
   select(1:3, matches("^[1-9]\\)")) %>%
   pivot_longer(
@@ -852,8 +848,7 @@ partA <- dalda %>%
     names_to = "question",
     values_to = "response"
   )
-  
-# part B
+
 partB <- dalda %>%
   select(1:3, matches("^((1[0-9])|(2[0-9])|(3[0-4]))\\)")) %>%
   pivot_longer(
@@ -861,10 +856,17 @@ partB <- dalda %>%
     names_to = "question",
     values_to = "response"
   )
-```
 
-```{r}
-#| label: DALDA Group Tables
+partB_light <- partB %>%
+  filter(week == "light") %>%
+  filter(response == "A) Worse than normal") %>%
+  select(-c(week, response))
+
+
+partB_heavy <- partB %>%
+  filter(week == "heavy") %>%
+  filter(response == "A) Worse than normal") %>%
+  select(-c(week, response))
 
 grouped_partA <- partA %>%
   filter(response == "A) Worse than normal") %>%
@@ -878,33 +880,16 @@ grouped_partB <- partB %>%
 ```
 
 ```{r}
-#| label: DALDA Calculations
+#| label: DALDA Part B Count for Worse Than Normal
 
-partB_light <- partB %>%
-  filter(week == "light") %>%
-  filter(response == "A) Worse than normal") %>%
-  select(-c(week, response))
-
-
-partB_heavy <- partB %>%
-  filter(week == "heavy") %>%
-  filter(response == "A) Worse than normal") %>%
-  select(-c(week, response))
-```
-
-```{r}
-
-library(lubridate)
-
-# Assuming df is your data frame
+# Light Week ----- 
 
 # Step 1: Convert 'day' into a numeric sequence
-df <- partB_light %>%
+partB_light_counts <- partB_light %>%
   mutate(day_num = as.numeric(sub("LD", "", day))) %>%
-  arrange(sub_id, question, day_num)
+  arrange(sub_id, question, day_num) %>%
 
-# Step 2: Group by 'sub_id' and 'question', then detect consecutive sequences
-df_processed <- df %>%
+# Step 2: Group by 'sub_id' and 'question', then detect consecutive sequence 
   group_by(sub_id, question) %>%
   mutate(consecutive = day_num - lag(day_num, default = first(day_num)) == 1) %>%
   group_by(sub_id, question, cumsum(!consecutive)) %>%
@@ -912,33 +897,68 @@ df_processed <- df %>%
   ungroup() %>%
   select(-day_num, -consecutive) %>%
   group_by(sub_id, question) %>%
-  summarise(max_streak = max(streak), .groups = 'drop')
+  summarise(max_streak = max(streak), .groups = 'drop') %>%
+  
+# Step 3: Filter to find subjects with 3 or more consecutive days of the same response 
+  filter(max_streak >= 3)
 
-# Step 3: Filter or arrange as needed to find subjects with 3 or more consecutive days of the same response
-df_filtered <- df_processed %>%
+
+# Heavy Week ----- 
+
+partB_heavy_counts <- partB_heavy %>%
+  mutate(day_num = as.numeric(sub("HD", "", day))) %>%
+  arrange(sub_id, question, day_num) %>%
+  group_by(sub_id, question) %>%
+  mutate(consecutive = day_num - lag(day_num, default = first(day_num)) == 1) %>%
+  group_by(sub_id, question, cumsum(!consecutive)) %>%
+  mutate(streak = row_number()) %>%
+  ungroup() %>%
+  select(-day_num, -consecutive) %>%
+  group_by(sub_id, question) %>%
+  summarise(max_streak = max(streak), .groups = 'drop') %>%
   filter(max_streak >= 3)
 ```
+
+#### Odds Ratio
 
 ```{r}
-# Assuming df is your data frame
 
-# Step 1: Convert 'day' into a numeric sequence
-df <- partB_heavy %>%
-  mutate(day_num = as.numeric(sub("HD", "", day))) %>%
-  arrange(sub_id, question, day_num)
+# all of part B
 
-# Step 2: Group by 'sub_id' and 'question', then detect consecutive sequences
-df_processed <- df %>%
-  group_by(sub_id, question) %>%
-  mutate(consecutive = day_num - lag(day_num, default = first(day_num)) == 1) %>%
-  group_by(sub_id, question, cumsum(!consecutive)) %>%
-  mutate(streak = row_number()) %>%
-  ungroup() %>%
-  select(-day_num, -consecutive) %>%
-  group_by(sub_id, question) %>%
-  summarise(max_streak = max(streak), .groups = 'drop')
+A <- 2  # Stressed during heavy week
+B <- 8  # Not stressed during heavy week
+C <- 4  # Stressed during light week
+D <- 6  # Not stressed during light week
 
-# Step 3: Filter or arrange as needed to find subjects with 3 or more consecutive days of the same response
-df_filtered_2 <- df_processed %>%
-  filter(max_streak >= 3)
+# Calculate Odds Ratio (OR)
+OR <- (A * D) / (B * C)
+
+OR
 ```
+
+Interpretation:
+
+-   In our study, 10 subjects completed both light and heavy training interventions. During the light training week, 4 out of the 10 subjects were classified as stressed, whereas during the heavy training week, only 2 out of the 10 subjects were classified as stressed.
+
+-   The odds ratio for being classified as 'stressed' during the heavy training week compared to the light training week was 0.375.
+
+-   This indicates that the odds of a subject being classified as stressed were 0.375 times lower during the heavy training week than during the light training week, suggesting that subjects were less likely to be classified as 'stressed' during the heavy training intervention
+
+```{r}
+
+# only training related questions:
+
+A <- 2  # Stressed during heavy week
+B <- 8  # Not stressed during heavy week
+C <- 1  # Stressed during light week
+D <- 9  # Not stressed during light week
+
+# Calculate Odds Ratio (OR)
+OR <- (A * D) / (B * C)
+
+OR
+```
+
+Interpretation:
+
+The calculated odds ratio (OR) for being classified as "stressed" during the heavy training week compared to the light training week is 2.25. This OR indicates that the odds of a subject being classified as stressed were 2.25 times higher during the heavy training week than during the light training week. This finding suggests an increased likelihood of stress classification associated with the heavier training intervention.

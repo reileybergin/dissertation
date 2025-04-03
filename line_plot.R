@@ -126,7 +126,7 @@ plot_data <- plot_data %>%
   ungroup()
 
 
-# ploting ----
+# plotting ----
 
 plot <- ggplot(plot_data, aes(x = run_type, y = value, group = sub_id, color = sub_id)) +
   geom_line(linewidth=0.65, alpha=0.75) +  # Adjust line width and add transparency
@@ -152,13 +152,3 @@ plot
 
 # save as PNG 
 ggsave("ch.4_results/plots/plot_2.png", plot = plot, width = 8, height = 6, dpi = 300)
-
-
-
-
-
-
-
-
-
-

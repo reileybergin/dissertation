@@ -3,6 +3,8 @@
 .RData
 .Ruserdata
 data/
+ch.3_results/
+ch.4_results/
 fits/
 dissertation.Rproj
 *.html

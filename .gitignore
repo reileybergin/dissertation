@@ -1,14 +1,29 @@
+# R related files
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
-data/
-ch.3_results/
-ch.4_results/
-fits/
 dissertation.Rproj
-*.html
-ch.4_models_files/
 renv/.gitignore
 renv/settings.dcf
+
+# Python related files
+__pycache__/
+**/__pycache__/
+testing.py
+
+# Output directories
+ch.3_results/
+ch.4_results/
+ch.4_models_files/
+fits/
 old/
+crop_for_5min/light_wk_five_mins/
+
+# Ignore any directory named 'data' anywhere in the repository
+**/data/
+
+# File types to ignore
+*.html
+*.json
+*.xlsx

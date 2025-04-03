@@ -19,6 +19,7 @@ ch.4_models_files/
 fits/
 old/
 crop_for_5min/light_wk_five_mins/
+plots/
 
 # Ignore any directory named 'data' anywhere in the repository
 **/data/
